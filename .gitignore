@@ -1,0 +1,62 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Training, evaluation, and experiment outputs
+logs/
+runs/
+wandb/
+tensorboard/
+checkpoints/
+events.out.tfevents.*
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Profiling and crash outputs
+*.prof
+*.nsys-rep
+*.qdrep
+core
+core.*
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+.cache/
+tmp/
+temp/
+*.tmp
+*.log
