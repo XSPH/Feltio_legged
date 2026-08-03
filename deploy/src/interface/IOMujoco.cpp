@@ -73,7 +73,6 @@ void IOMujoco::recv(LowlevelState *state){
     mj_objectVelocity(_model, _data, mjOBJ_BODY, _baseBodyId, velocity, 1);
     for(int i = 0; i < 3; i++){
         state->imu.gyroscope[i] = static_cast<float>(velocity[i]);
-        state->imu.line[i] = static_cast<float>(velocity[i + 3]);
     }
 
     state->userCmd = cmdPanel->getUserCmd();

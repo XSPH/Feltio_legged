@@ -43,13 +43,12 @@ float State_Rl::applyDeadzone(float value){
 }
 
 void State_Rl::getObservation(){
-    // 0~2: base linear velocity, 3~5: base angular velocity
+    // 0~2: base angular velocity
     for(int i = 0; i < 3; i++){
-        obs[i] = _lowState->imu.line[i] * _config->linear_velocity_scale;
-        obs[i + 3] = _lowState->imu.gyroscope[i] * _config->angular_velocity_scale;
+        obs[i] = _lowState->imu.gyroscope[i] * _config->angular_velocity_scale;
     }
 
-    // 6~8: projected gravity
+    // 3~5: projected gravity
     Eigen::Quaternionf baseQuat(_lowState->imu.quaternion[0],
                                 _lowState->imu.quaternion[1],
                                 _lowState->imu.quaternion[2],
@@ -61,25 +60,25 @@ void State_Rl::getObservation(){
     Eigen::Vector3f gravity = baseQuat.conjugate()
                             * Eigen::Vector3f(0, 0, -1);
     for(int i = 0; i < 3; i++){
-        obs[i + 6] = gravity[i];
+        obs[i + 3] = gravity[i];
     }
 
-    // 9~11: vx, vy and yaw commands from the gamepad
+    // 6~8: vx, vy and yaw commands from the gamepad
     float commandX = -applyDeadzone(_userValue.ly) * _config->max_linear_x;
     float commandY = -applyDeadzone(_userValue.lx) * _config->max_linear_y;
     float commandYaw = -applyDeadzone(_userValue.rx) * _config->max_angular_z;
-    obs[9] = commandX * _config->command_linear_scale;
-    obs[10] = commandY * _config->command_linear_scale;
-    obs[11] = commandYaw * _config->command_yaw_scale;
+    obs[6] = commandX * _config->command_linear_scale;
+    obs[7] = commandY * _config->command_linear_scale;
+    obs[8] = commandYaw * _config->command_yaw_scale;
 
-    // 12~23: joint position, 24~35: joint velocity, 36~47: last action
+    // 9~20: joint position, 21~32: joint velocity, 33~44: last action
     for(int i = 0; i < 12; i++){
-        obs[i + 12] = (_lowState->motorState[i].q
+        obs[i + 9] = (_lowState->motorState[i].q
                        - _config->default_joint_angles[i])
                       * _config->joint_position_scale;
-        obs[i + 24] = _lowState->motorState[i].dq
+        obs[i + 21] = _lowState->motorState[i].dq
                       * _config->joint_velocity_scale;
-        obs[i + 36] = lastAction[i];
+        obs[i + 33] = lastAction[i];
     }
 
     for(int i = 0; i < NUM_OBSERVATIONS; i++){
@@ -92,7 +91,7 @@ void State_Rl::getObservation(){
 }
 
 void State_Rl::mnnInference(){
-    // One feed-forward actor: 48 observations -> 12 actions.
+    // One feed-forward actor: 45 observations -> 12 actions.
     rlptr->advanceNNsync(obs, actionCmd);
 
     for(int i = 0; i < NUM_ACTIONS; i++){

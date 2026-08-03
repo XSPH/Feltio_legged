@@ -19,7 +19,6 @@ struct MotorState{
 struct IMU{
     float quaternion[4];   // w, x, y, z
     float gyroscope[3];   // body frame
-    float line[3];        // body-frame linear velocity
 
     IMU(){
         quaternion[0] = 1;
@@ -28,7 +27,6 @@ struct IMU{
         }
         for(int i = 0; i < 3; i++){
             gyroscope[i] = 0;
-            line[i] = 0;
         }
     }
 };
@@ -43,4 +41,3 @@ struct LowlevelState{
 };
 
 #endif
-

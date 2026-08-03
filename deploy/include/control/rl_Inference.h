@@ -6,7 +6,7 @@
 #include "MNN/Interpreter.hpp"
 #include "MNN/Tensor.hpp"
 
-#define NUM_OBSERVATIONS 48
+#define NUM_OBSERVATIONS 45
 #define NUM_ACTIONS 12
 
 class rl_Inference{
@@ -25,4 +25,3 @@ private:
 };
 
 #endif
-

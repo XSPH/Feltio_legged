@@ -3,7 +3,7 @@
 
 model:
   path: ../models/policy.mnn
-  input_size: 48
+  input_size: 45
   output_size: 12
   num_threads: 2
 
@@ -36,7 +36,6 @@ controller:
     - -1.5
 
 observation_scales:
-  linear_velocity: 2.0
   angular_velocity: 0.25
   joint_position: 1.0
   joint_velocity: 0.05
@@ -51,4 +50,3 @@ commands:
 
 joystick:
   device: /dev/input/js0
-

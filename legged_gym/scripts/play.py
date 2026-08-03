@@ -108,7 +108,7 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/rough_go2/Aug03_13-49-54_/model_3000.pt"
+policy_path = "/home/asuka/Legged/Feltio_legged/logs/rough_go2/Aug03_17-14-34_/model_5000.pt"
     if not os.path.isfile(policy_path):
         raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False
@@ -144,9 +144,9 @@ def play(args):
                 dtype=env.commands.dtype,
             )
             env.commands[:, :3] = joy_cmd
-            # In this project commands occupy observation indices 9:12. The
+            # In this project commands occupy observation indices 6:9. The
             # scaling is [2.0, 2.0, 0.25], matching the reference play.py.
-            obs[:, 9:12] = env.commands[:, :3] * env.commands_scale
+            obs[:, 6:9] = env.commands[:, :3] * env.commands_scale
 
             actions = policy(obs.detach())
             obs, _, rews, dones, infos = env.step(actions.detach())

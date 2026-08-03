@@ -92,7 +92,6 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
     std::copy(defaults.begin(), defaults.end(), cfg.default_joint_angles.begin());
 
     const auto scales = required<YAML::Node>(root, "observation_scales");
-    cfg.linear_velocity_scale = required<float>(scales, "linear_velocity");
     cfg.angular_velocity_scale = required<float>(scales, "angular_velocity");
     cfg.joint_position_scale = required<float>(scales, "joint_position");
     cfg.joint_velocity_scale = required<float>(scales, "joint_velocity");
@@ -107,8 +106,8 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
     cfg.joystick_device = required<std::string>(
         required<YAML::Node>(root, "joystick"), "device");
 
-    if (cfg.model_input_size != 48 || cfg.model_output_size != 12) {
-        throw std::runtime_error("Only a 48-input, 12-output feed-forward actor is supported");
+    if (cfg.model_input_size != 45 || cfg.model_output_size != 12) {
+        throw std::runtime_error("Only a 45-input, 12-output feed-forward actor is supported");
     }
     if (cfg.model_num_threads < 1 || cfg.simulation_decimation < 1) {
         throw std::runtime_error("model.num_threads and simulation.decimation must be >= 1");

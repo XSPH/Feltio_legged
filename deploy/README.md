@@ -2,7 +2,7 @@
 
 This directory contains only the MuJoCo simulation path and the three-state
 controller (`passive -> fixed stand -> RL`). The RL state supports one
-feed-forward actor with 48 observations and 12 actions.
+feed-forward actor with 45 observations and 12 actions.
 
 ## Model
 

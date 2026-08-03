@@ -10,7 +10,7 @@ struct DeployConfig {
     std::filesystem::path model_path;
     std::filesystem::path scene_path;
 
-    int model_input_size = 48;
+    int model_input_size = 45;
     int model_output_size = 12;
     int model_num_threads = 2;
 
@@ -27,7 +27,6 @@ struct DeployConfig {
     float clip_actions = 100.0F;
     std::array<float, 12> default_joint_angles{};
 
-    float linear_velocity_scale = 2.0F;
     float angular_velocity_scale = 0.25F;
     float joint_position_scale = 1.0F;
     float joint_velocity_scale = 0.05F;
@@ -45,4 +44,3 @@ struct DeployConfig {
 };
 
 #endif
-
