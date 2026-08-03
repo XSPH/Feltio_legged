@@ -1,0 +1,54 @@
+# dogsim always loads this file automatically. Relative paths are resolved
+# from the directory containing this file.
+
+model:
+  path: ../models/policy.mnn
+  input_size: 48
+  output_size: 12
+  num_threads: 2
+
+simulation:
+  scene: ../models/go2/cross_stairs.xml
+  timestep: 0.005
+  decimation: 4
+  render_hz: 60.0
+  initial_base_height: 0.42
+
+controller:
+  action_scale: 0.25
+  stiffness: 20.0
+  damping: 0.5
+  stand_duration: 2.0
+  clip_observations: 100.0
+  clip_actions: 100.0
+  default_joint_angles:
+    - 0.1
+    - 0.8
+    - -1.5
+    - -0.1
+    - 0.8
+    - -1.5
+    - 0.1
+    - 1.0
+    - -1.5
+    - -0.1
+    - 1.0
+    - -1.5
+
+observation_scales:
+  linear_velocity: 2.0
+  angular_velocity: 0.25
+  joint_position: 1.0
+  joint_velocity: 0.05
+  command_linear: 2.0
+  command_yaw: 0.25
+
+commands:
+  max_linear_x: 1.0
+  max_linear_y: 1.0
+  max_angular_z: 1.0
+  deadzone: 0.08
+
+joystick:
+  device: /dev/input/js0
+

@@ -31,14 +31,44 @@
 import time
 import os
 from collections import deque
+from pathlib import Path
 import statistics
 
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import torch
+import yaml
 
+from legged_gym.utils.helpers import class_to_dict
 from rsl_rl.algorithms import PPO
 from rsl_rl.modules import ActorCritic, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
+
+
+def _to_yaml_safe(value):
+    """Convert NumPy values in a configuration tree to YAML-safe builtins."""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: _to_yaml_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_yaml_safe(item) for item in value]
+    return value
+
+
+def _save_config_as_yaml(env_cfg, train_cfg, log_dir):
+    log_path = Path(log_dir)
+    log_path.mkdir(parents=True, exist_ok=True)
+    config = _to_yaml_safe({
+        "train_cfg": train_cfg,
+        "env_cfg": class_to_dict(env_cfg),
+    })
+    config_path = log_path / "config.yaml"
+    with config_path.open("w", encoding="utf-8") as config_file:
+        yaml.safe_dump(config, config_file, allow_unicode=True, sort_keys=False)
+    return config_path
 
 
 class OnPolicyRunner:
@@ -79,6 +109,8 @@ class OnPolicyRunner:
         self.current_learning_iteration = 0
 
         _, _ = self.env.reset()
+        if self.log_dir is not None and not self.env.cfg.env.test:
+            _save_config_as_yaml(self.env.cfg, train_cfg, self.log_dir)
     
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer

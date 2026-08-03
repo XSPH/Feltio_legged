@@ -1,0 +1,243 @@
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <thread>
+
+#include <GLFW/glfw3.h>
+#include <mujoco/mujoco.h>
+
+#include "config/DeployConfig.h"
+#include "control/ControlFrame.h"
+#include "control/CtrlComponents.h"
+#include "interface/IOMujoco.h"
+
+namespace {
+
+mjModel* g_model = nullptr;
+mjData* g_data = nullptr;
+mjvCamera g_camera;
+mjvOption g_option;
+mjvScene g_scene;
+mjrContext g_context;
+
+bool g_left_button = false;
+bool g_middle_button = false;
+bool g_right_button = false;
+double g_last_x = 0.0;
+double g_last_y = 0.0;
+std::atomic<bool> g_reset_requested{false};
+std::atomic<UserCommand> g_keyboard_command{UserCommand::NONE};
+
+void keyboard(GLFWwindow*, int key, int, int action, int) {
+    if (action != GLFW_PRESS) {
+        return;
+    }
+    if (key == GLFW_KEY_BACKSPACE) {
+        g_reset_requested.store(true);
+    } else if (key == GLFW_KEY_P) {
+        g_keyboard_command.store(UserCommand::PASS);
+    } else if (key == GLFW_KEY_F) {
+        g_keyboard_command.store(UserCommand::FIXED);
+    } else if (key == GLFW_KEY_R) {
+        g_keyboard_command.store(UserCommand::RL);
+    }
+}
+
+void mouseButton(GLFWwindow* window, int, int, int) {
+    g_left_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    g_middle_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS;
+    g_right_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    glfwGetCursorPos(window, &g_last_x, &g_last_y);
+}
+
+void mouseMove(GLFWwindow* window, double x, double y) {
+    if (!g_left_button && !g_middle_button && !g_right_button) {
+        return;
+    }
+    const double dx = x - g_last_x;
+    const double dy = y - g_last_y;
+    g_last_x = x;
+    g_last_y = y;
+
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window, &width, &height);
+    if (height <= 0) {
+        return;
+    }
+    const bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                       glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+    mjtMouse action;
+    if (g_right_button) {
+        action = shift ? mjMOUSE_MOVE_H : mjMOUSE_MOVE_V;
+    } else if (g_left_button) {
+        action = shift ? mjMOUSE_ROTATE_H : mjMOUSE_ROTATE_V;
+    } else {
+        action = mjMOUSE_ZOOM;
+    }
+    mjv_moveCamera(g_model, action, dx / height, dy / height, &g_scene, &g_camera);
+}
+
+void scroll(GLFWwindow*, double, double y_offset) {
+    mjv_moveCamera(g_model, mjMOUSE_ZOOM, 0.0, -0.05 * y_offset,
+                   &g_scene, &g_camera);
+}
+
+void initializePose(const mjModel* model, mjData* data, const DeployConfig& config) {
+    mj_resetData(model, data);
+    const int root_id = mj_name2id(model, mjOBJ_JOINT, "root");
+    if (root_id < 0) {
+        throw std::runtime_error("MuJoCo root joint not found");
+    }
+    const int root_qpos = model->jnt_qposadr[root_id];
+    data->qpos[root_qpos + 0] = 0.0;
+    data->qpos[root_qpos + 1] = 0.0;
+    data->qpos[root_qpos + 2] = config.initial_base_height;
+    data->qpos[root_qpos + 3] = 1.0;
+    data->qpos[root_qpos + 4] = 0.0;
+    data->qpos[root_qpos + 5] = 0.0;
+    data->qpos[root_qpos + 6] = 0.0;
+
+    constexpr const char* joint_names[12] = {
+        "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+        "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+        "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+        "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+    };
+    for (int i = 0; i < 12; ++i) {
+        const int joint_id = mj_name2id(model, mjOBJ_JOINT, joint_names[i]);
+        if (joint_id < 0) {
+            throw std::runtime_error(std::string("MuJoCo joint not found: ") +
+                                     joint_names[i]);
+        }
+        data->qpos[model->jnt_qposadr[joint_id]] = config.default_joint_angles[i];
+    }
+    mj_forward(model, data);
+}
+
+void render(GLFWwindow* window) {
+    mjrRect viewport{0, 0, 0, 0};
+    glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
+    mjv_updateScene(g_model, g_data, &g_option, nullptr, &g_camera, mjCAT_ALL,
+                    &g_scene);
+    mjr_render(viewport, &g_scene, &g_context);
+    glfwSwapBuffers(window);
+}
+
+}  // namespace
+
+int main() {
+    GLFWwindow* window = nullptr;
+    try {
+        const DeployConfig config = DeployConfig::loadDefault();
+        std::cout << "[config] " << config.config_path << '\n'
+                  << "[scene]  " << config.scene_path << '\n'
+                  << "[model]  " << config.model_path << '\n';
+
+        char error[1024]{};
+        g_model = mj_loadXML(config.scene_path.c_str(), nullptr, error, sizeof(error));
+        if (g_model == nullptr) {
+            throw std::runtime_error(std::string("Failed to load MuJoCo scene: ") + error);
+        }
+        g_model->opt.timestep = config.simulation_timestep;
+        g_data = mj_makeData(g_model);
+        if (g_data == nullptr) {
+            throw std::runtime_error("Failed to allocate MuJoCo data");
+        }
+        initializePose(g_model, g_data, config);
+
+        if (!glfwInit()) {
+            throw std::runtime_error("Failed to initialize GLFW");
+        }
+        window = glfwCreateWindow(1200, 900, "Go2 RL MuJoCo", nullptr, nullptr);
+        if (window == nullptr) {
+            throw std::runtime_error("Failed to create GLFW window");
+        }
+        glfwMakeContextCurrent(window);
+        glfwSwapInterval(0);
+
+        mjv_defaultCamera(&g_camera);
+        mjv_defaultOption(&g_option);
+        mjv_defaultScene(&g_scene);
+        mjr_defaultContext(&g_context);
+        mjv_makeScene(g_model, &g_scene, 2000);
+        mjr_makeContext(g_model, &g_context, mjFONTSCALE_150);
+        g_camera.type = mjCAMERA_TRACKING;
+        g_camera.trackbodyid = mj_name2id(g_model, mjOBJ_BODY, "base");
+        g_camera.distance = 2.0;
+        g_camera.azimuth = 135.0;
+        g_camera.elevation = -20.0;
+
+        glfwSetKeyCallback(window, keyboard);
+        glfwSetCursorPosCallback(window, mouseMove);
+        glfwSetMouseButtonCallback(window, mouseButton);
+        glfwSetScrollCallback(window, scroll);
+
+        IOInterface *ioInter = new IOMujoco(g_data, g_model, &config);
+        CtrlComponents ctrlComp(ioInter, &config);
+        ControlFrame ctrlFrame(&ctrlComp);
+
+        std::cout << "Controls: B/F=fixed stand, A/R=RL, Y/P=passive, "
+                     "Backspace=reset\n";
+        const double policy_dt =
+            config.simulation_timestep * config.simulation_decimation;
+        const double render_dt = 1.0 / config.render_hz;
+        double next_render_time = g_data->time;
+        auto wall_deadline = std::chrono::steady_clock::now();
+
+        while (!glfwWindowShouldClose(window)) {
+            if (g_reset_requested.exchange(false)) {
+                initializePose(g_model, g_data, config);
+                ctrlFrame.reset();
+                next_render_time = g_data->time;
+                wall_deadline = std::chrono::steady_clock::now();
+            }
+            const UserCommand keyboard_command =
+                g_keyboard_command.exchange(UserCommand::NONE);
+            if (keyboard_command != UserCommand::NONE) {
+                ctrlComp.setUserCommand(keyboard_command);
+            }
+
+            ctrlFrame.run();
+            for (int i = 0; i < config.simulation_decimation; ++i) {
+                mj_step(g_model, g_data);
+            }
+
+            if (g_data->time + 1.0e-9 >= next_render_time) {
+                render(window);
+                glfwPollEvents();
+                next_render_time += render_dt;
+            }
+
+            wall_deadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(policy_dt));
+            std::this_thread::sleep_until(wall_deadline);
+        }
+
+        mjv_freeScene(&g_scene);
+        mjr_freeContext(&g_context);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        mj_deleteData(g_data);
+        mj_deleteModel(g_model);
+        return EXIT_SUCCESS;
+    } catch (const std::exception& error) {
+        std::cerr << "[fatal] " << error.what() << '\n';
+        if (window != nullptr) {
+            glfwDestroyWindow(window);
+        }
+        glfwTerminate();
+        if (g_data != nullptr) {
+            mj_deleteData(g_data);
+        }
+        if (g_model != nullptr) {
+            mj_deleteModel(g_model);
+        }
+        return EXIT_FAILURE;
+    }
+}

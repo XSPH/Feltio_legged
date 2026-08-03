@@ -33,7 +33,7 @@ import os
 
 import isaacgym
 from legged_gym.envs import *
-from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
+from legged_gym.utils import export_policy_as_jit, export_policy_as_onnx, get_args, task_registry, Logger
 
 import numpy as np
 import torch
@@ -89,7 +89,16 @@ def play(args):
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
+    env_cfg.domain_rand.randomize_base_mass = False
+    env_cfg.domain_rand.randomize_link_mass = False
+    env_cfg.domain_rand.randomize_base_com = False
+    env_cfg.domain_rand.randomize_restitution = False
+    env_cfg.domain_rand.randomize_pd_gains = False
+    env_cfg.domain_rand.randomize_motor_zero_offset = False
+    env_cfg.domain_rand.randomize_motor_strength = False
+    env_cfg.domain_rand.randomize_action_delay = False
     env_cfg.domain_rand.push_robots = False
+    env_cfg.env.test = True
     # A gamepad supplies yaw rate directly, so do not convert a heading target
     # into yaw rate or periodically replace the manual command.
     env_cfg.commands.heading_command = False
@@ -99,15 +108,22 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
     # load policy
-    train_cfg.runner.resume = True
+    policy_path = "/home/asuka/Legged/Feltio_legged/logs/rough_go2/Aug03_13-49-54_/model_3000.pt"
+    if not os.path.isfile(policy_path):
+        raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
+    train_cfg.runner.resume = False
+    args.resume = False
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+    print(f"Loading policy from: {policy_path}")
+    ppo_runner.load(policy_path)
     policy = ppo_runner.get_inference_policy(device=env.device)
     
     # export policy as a jit module (used to run it from C++)
     if EXPORT_POLICY:
         path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
-        print('Exported policy as jit script to: ', path)
+        export_policy_as_onnx(ppo_runner.alg.actor_critic, path)
+        print('Exported policy as JIT and ONNX to: ', path)
 
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging

@@ -91,12 +91,38 @@ class LeggedRobotCfg(BaseConfig):
 
     class domain_rand:
         randomize_friction = True
-        friction_range = [0.5, 1.25]
-        randomize_base_mass = False
+        friction_range = [0.2, 1.25]
+
+        randomize_base_mass = True
         added_mass_range = [-1., 1.]
+
+        randomize_link_mass = True
+        multiplied_link_mass_range = [0.9, 1.1]
+
+        randomize_base_com = True
+        added_base_com_range = [-0.03, 0.03]
+
+        randomize_restitution = False # restitution to robot links (Robot init)
+        restitution_range = [0.0, 0.2]
+
+        ### Environment reset ###
+        randomize_pd_gains = True
+        stiffness_multiplier_range = [0.9, 1.1]
+        damping_multiplier_range = [0.9, 1.1]
+
+        randomize_motor_zero_offset = True
+        motor_zero_offset_range = [-0.035, 0.035]
+
+        randomize_motor_strength = False # (Env reset)
+        motor_strength_range = [0.9, 1.1]
+
+        ### Environment step ###
         push_robots = True
-        push_interval_s = 15
-        max_push_vel_xy = 1.
+        push_interval_s = 4
+        max_push_vel_xy = 0.4
+        max_push_ang_vel = 0.6
+
+        randomize_action_delay = True # use last_action with 0~20 ms delay, 4 decimation
 
     class rewards:
         class scales:
@@ -109,19 +135,22 @@ class LeggedRobotCfg(BaseConfig):
             torques = -0.00001
             dof_vel = -0.
             dof_acc = -2.5e-7
-            base_height = -0. 
+            base_height = -1.
             feet_air_time =  1.0
             collision = -1.
             feet_stumble = -0.0 
             action_rate = -0.01
+            action_smoothness = -0.005
             stand_still = -0.
             feet_regulation = -0.05
+            hip_default = -0.05
+
 
         only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
-        soft_dof_pos_limit = 1. # percentage of urdf limits, values above this limit are penalized
-        soft_dof_vel_limit = 1.
-        soft_torque_limit = 1.
+        soft_dof_pos_limit = 0.9 # percentage of urdf limits, values above this limit are penalized
+        soft_dof_vel_limit = 0.9
+        soft_torque_limit = 0.9
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized
 
