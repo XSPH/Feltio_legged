@@ -14,7 +14,7 @@ from typing import Tuple, Dict
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.terrain import Terrain
-from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float
+from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float, get_scale_shift
 from legged_gym.utils.isaacgym_utils import get_euler_xyz as get_euler_xyz_in_tensor
 from legged_gym.utils.helpers import class_to_dict
 from .legged_robot_config import LeggedRobotCfg
@@ -228,13 +228,32 @@ class LeggedRobot(BaseTask):
                                     self.dof_vel * self.obs_scales.dof_vel,
                                     self.actions
                                     ),dim=-1)
-        # add perceptive inputs if not blind
-        if self.cfg.terrain.measure_heights:
-            heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
-            self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
+
+        heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights,-1.,1.) * self.obs_scales.height_measurements
+        self.foot_contact_forces = self._get_normalized_foot_contact_forces()
+        self.privileged_obs_buf = torch.cat((
+                                    self.obs_buf,
+                                    self.base_lin_vel * self.obs_scales.lin_vel,
+                                    self.foot_contact_forces,
+                                    heights
+                                    ), dim=-1)
         # add noise if needed
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
+
+    def _get_normalized_foot_contact_forces(self):
+        """Return clipped foot contact forces in the base frame."""
+        self.contact_force_xy_scale, self.contact_force_xy_shift = get_scale_shift(self.cfg.normalization.contact_force_xy_range)
+        self.contact_force_z_scale, self.contact_force_z_shift = get_scale_shift(self.cfg.normalization.contact_force_z_range)
+        num_feet = len(self.feet_indices)
+        foot_forces = self.contact_forces[:, self.feet_indices, :]
+        base_quaternions = self.base_quat.unsqueeze(1).repeat(1, num_feet, 1)
+        foot_forces = quat_rotate_inverse(base_quaternions.reshape(-1, 4),foot_forces.reshape(-1, 3),).view(self.num_envs, num_feet, 3)
+        normalized_forces = torch.cat((
+            (foot_forces[..., :2] - self.contact_force_xy_shift) * self.contact_force_xy_scale,
+            (foot_forces[..., 2:] - self.contact_force_z_shift) * self.contact_force_z_scale,
+        ), dim=-1)
+        return torch.clip(normalized_forces, -1., 1.).reshape(self.num_envs, -1)
 
     def create_sim(self):
         """ Creates simulation, terrain and evironments
@@ -983,3 +1002,9 @@ class LeggedRobot(BaseTask):
         hip_pos = self.dof_pos[:, hip_dof_indices]
         default_hip_pos = self.default_dof_pos[:, hip_dof_indices]
         return torch.sum(torch.abs(hip_pos - default_hip_pos), dim=1)
+
+    def _reward_dof_power(self):
+        # Penalize power consumption
+        power = self.torques * self.dof_vel
+        rew = torch.sum(torch.abs(power), dim=1)
+        return rew

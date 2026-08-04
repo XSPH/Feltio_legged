@@ -31,6 +31,11 @@ Controller mapping:
 - Xbox `A` or keyboard `R`: RL policy
 - Xbox `Y` or keyboard `P`: passive
 - Backspace: reset simulation and FSM
+- `Ctrl` + left-click and drag a robot link: apply an external force
+
+Robot collision primitives are hidden in the viewer. This only changes their
+display; collision detection and contact forces remain enabled. The floor and
+terrain geometry remain visible.
 
 The complete Go2 XML, URDF and mesh assets are copied unchanged from
 `go2_rl_gym/resources/robots/go2`. The default scene is the original

@@ -39,8 +39,8 @@ class GO2RoughCfg( LeggedRobotCfg ):
         self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
   
     class rewards( LeggedRobotCfg.rewards ):
-        soft_dof_pos_limit = 0.9
-        base_height_target = 0.32
+        soft_dof_pos_limit = 0.8
+        base_height_target = 0.38
         class scales( LeggedRobotCfg.rewards.scales ):
             torques = -1e-4
             dof_pos_limits = -2.

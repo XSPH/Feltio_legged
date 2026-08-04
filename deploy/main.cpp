@@ -23,6 +23,7 @@ mjData* g_data = nullptr;
 mjvCamera g_camera;
 mjvOption g_option;
 mjvScene g_scene;
+mjvPerturb g_perturb;
 mjrContext g_context;
 
 bool g_left_button = false;
@@ -32,6 +33,57 @@ double g_last_x = 0.0;
 double g_last_y = 0.0;
 std::atomic<bool> g_reset_requested{false};
 std::atomic<UserCommand> g_keyboard_command{UserCommand::NONE};
+
+bool controlPressed(GLFWwindow* window) {
+    return glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+           glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+}
+
+void clearPerturbation() {
+    g_perturb.select = 0;
+    g_perturb.flexselect = -1;
+    g_perturb.skinselect = -1;
+    g_perturb.active = 0;
+    g_perturb.active2 = 0;
+    if (g_model != nullptr && g_data != nullptr) {
+        mju_zero(g_data->xfrc_applied, 6 * g_model->nbody);
+    }
+}
+
+void beginForceDrag(GLFWwindow* window, double x, double y) {
+    int width = 0;
+    int height = 0;
+    glfwGetWindowSize(window, &width, &height);
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    mjtNum selection_point[3]{};
+    int geom_id = -1;
+    int flex_id = -1;
+    int skin_id = -1;
+    const int body_id = mjv_select(
+        g_model, g_data, &g_option,
+        static_cast<mjtNum>(width) / static_cast<mjtNum>(height),
+        static_cast<mjtNum>(x) / static_cast<mjtNum>(width),
+        1.0 - static_cast<mjtNum>(y) / static_cast<mjtNum>(height),
+        &g_scene, selection_point, &geom_id, &flex_id, &skin_id);
+
+    if (body_id <= 0) {
+        clearPerturbation();
+        return;
+    }
+
+    g_perturb.select = body_id;
+    g_perturb.flexselect = flex_id;
+    g_perturb.skinselect = skin_id;
+
+    mjtNum offset[3];
+    mju_sub3(offset, selection_point, g_data->xpos + 3 * body_id);
+    mju_mulMatTVec(g_perturb.localpos, g_data->xmat + 9 * body_id, offset, 3, 3);
+    mjv_initPerturb(g_model, g_data, &g_scene, &g_perturb);
+    g_perturb.active = mjPERT_TRANSLATE;
+}
 
 void keyboard(GLFWwindow*, int key, int, int action, int) {
     if (action != GLFW_PRESS) {
@@ -48,11 +100,18 @@ void keyboard(GLFWwindow*, int key, int, int action, int) {
     }
 }
 
-void mouseButton(GLFWwindow* window, int, int, int) {
+void mouseButton(GLFWwindow* window, int button, int action, int) {
     g_left_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     g_middle_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS;
     g_right_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     glfwGetCursorPos(window, &g_last_x, &g_last_y);
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS &&
+        controlPressed(window)) {
+        beginForceDrag(window, g_last_x, g_last_y);
+    } else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+        clearPerturbation();
+    }
 }
 
 void mouseMove(GLFWwindow* window, double x, double y) {
@@ -68,6 +127,11 @@ void mouseMove(GLFWwindow* window, double x, double y) {
     int height = 0;
     glfwGetWindowSize(window, &width, &height);
     if (height <= 0) {
+        return;
+    }
+    if (g_perturb.active != 0) {
+        mjv_movePerturb(g_model, g_data, mjMOUSE_MOVE_V, dx / height,
+                        dy / height, &g_scene, &g_perturb);
         return;
     }
     const bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
@@ -123,7 +187,7 @@ void initializePose(const mjModel* model, mjData* data, const DeployConfig& conf
 void render(GLFWwindow* window) {
     mjrRect viewport{0, 0, 0, 0};
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
-    mjv_updateScene(g_model, g_data, &g_option, nullptr, &g_camera, mjCAT_ALL,
+    mjv_updateScene(g_model, g_data, &g_option, &g_perturb, &g_camera, mjCAT_ALL,
                     &g_scene);
     mjr_render(viewport, &g_scene, &g_context);
     glfwSwapBuffers(window);
@@ -164,7 +228,20 @@ int main() {
         mjv_defaultCamera(&g_camera);
         mjv_defaultOption(&g_option);
         mjv_defaultScene(&g_scene);
+        mjv_defaultPerturb(&g_perturb);
         mjr_defaultContext(&g_context);
+
+        // Robot collision primitives are ungrouped, while visual meshes use
+        // group 2. Move only the robot collision geoms to a hidden render
+        // group; world geoms such as the floor and stairs remain visible.
+        for (int geom_id = 0; geom_id < g_model->ngeom; ++geom_id) {
+            if (g_model->geom_bodyid[geom_id] != 0 &&
+                g_model->geom_group[geom_id] == 0) {
+                g_model->geom_group[geom_id] = 3;
+            }
+        }
+        g_option.geomgroup[3] = 0;
+        g_option.flags[mjVIS_PERTFORCE] = 1;
         mjv_makeScene(g_model, &g_scene, 2000);
         mjr_makeContext(g_model, &g_context, mjFONTSCALE_150);
         g_camera.type = mjCAMERA_TRACKING;
@@ -183,7 +260,7 @@ int main() {
         ControlFrame ctrlFrame(&ctrlComp);
 
         std::cout << "Controls: B/F=fixed stand, A/R=RL, Y/P=passive, "
-                     "Backspace=reset\n";
+                     "Ctrl+left drag=apply force, Backspace=reset\n";
         const double policy_dt =
             config.simulation_timestep * config.simulation_decimation;
         const double render_dt = 1.0 / config.render_hz;
@@ -192,6 +269,7 @@ int main() {
 
         while (!glfwWindowShouldClose(window)) {
             if (g_reset_requested.exchange(false)) {
+                clearPerturbation();
                 initializePose(g_model, g_data, config);
                 ctrlFrame.reset();
                 next_render_time = g_data->time;
@@ -204,6 +282,10 @@ int main() {
             }
 
             ctrlFrame.run();
+            mju_zero(g_data->xfrc_applied, 6 * g_model->nbody);
+            if (g_perturb.active != 0) {
+                mjv_applyPerturbForce(g_model, g_data, &g_perturb);
+            }
             for (int i = 0; i < config.simulation_decimation; ++i) {
                 mj_step(g_model, g_data);
             }
