@@ -117,6 +117,13 @@ def play(args):
     print(f"Loading policy from: {policy_path}")
     ppo_runner.load(policy_path)
     policy = ppo_runner.get_inference_policy(device=env.device)
+    obs = env.get_observations()
+    history = torch.zeros(
+        env.num_envs,
+        train_cfg.history_length,
+        env.num_obs,
+        device=env.device,
+    )
     
     # export policy as a jit module (used to run it from C++)
     if EXPORT_POLICY:
@@ -147,9 +154,11 @@ def play(args):
             # In this project commands occupy observation indices 6:9. The
             # scaling is [2.0, 2.0, 0.25], matching the reference play.py.
             obs[:, 6:9] = env.commands[:, :3] * env.commands_scale
+            history = torch.cat([history[:, 1:], obs.unsqueeze(1)], dim=1)
 
-            actions = policy(obs.detach())
+            actions = policy(obs.detach(), history.flatten(1).detach())
             obs, _, rews, dones, infos = env.step(actions.detach())
+            history[dones > 0] = 0.0
             if RECORD_FRAMES:
                 if i % 2:
                     filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")

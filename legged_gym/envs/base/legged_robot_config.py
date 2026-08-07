@@ -208,15 +208,17 @@ class LeggedRobotCfg(BaseConfig):
 class LeggedRobotCfgPPO(BaseConfig):
     seed = 1
     runner_class_name = 'OnPolicyRunner'
+    history_length = 5
+
     class policy:
         init_noise_std = 1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
+        teacher_encoder_hidden_dims = [512, 256]
+        student_encoder_hidden_dims = [512, 256]
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
-        # only for 'ActorCriticRecurrent':
-        # rnn_type = 'lstm'
-        # rnn_hidden_size = 512
-        # rnn_num_layers = 1
+        latent_dim = 16
+
         
     class algorithm:
         # training params
@@ -227,11 +229,14 @@ class LeggedRobotCfgPPO(BaseConfig):
         num_learning_epochs = 5
         num_mini_batches = 4 # mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3 #5.e-4
+        student_encoder_learning_rate = 1e-3
         schedule = 'adaptive' # could be adaptive, fixed
         gamma = 0.99
         lam = 0.95
         desired_kl = 0.01
         max_grad_norm = 1.
+        teacher_env_ratio = 0.75
+        student_ppo_coef = 1.0
 
     class runner:
         policy_class_name = 'ActorCritic'

@@ -88,18 +88,23 @@ class OnPolicyRunner:
             num_critic_obs = self.env.num_privileged_obs 
         else:
             num_critic_obs = self.env.num_obs
+        history_length = train_cfg["history_length"]
         actor_critic_class = eval(self.cfg["policy_class_name"]) # ActorCritic
         actor_critic: ActorCritic = actor_critic_class( self.env.num_obs,
                                                         num_critic_obs,
                                                         self.env.num_actions,
+                                                        history_length,
                                                         **self.policy_cfg).to(self.device)
         alg_class = eval(self.cfg["algorithm_class_name"]) # PPO
-        self.alg: PPO = alg_class(actor_critic, device=self.device, **self.alg_cfg)
+        self.alg: PPO = alg_class(actor_critic, self.env.num_envs, history_length, device=self.device, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
 
         # init storage and model
         self.alg.init_storage(self.env.num_envs, self.num_steps_per_env, [self.env.num_obs], [self.env.num_privileged_obs], [self.env.num_actions])
+
+        # init history
+        self.history = torch.zeros((self.env.num_envs, history_length, self.env.num_obs), device=self.device)
 
         # Log
         self.log_dir = log_dir
@@ -120,13 +125,16 @@ class OnPolicyRunner:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         obs = self.env.get_observations()
         privileged_obs = self.env.get_privileged_observations()
-        critic_obs = privileged_obs if privileged_obs is not None else obs
-        obs, critic_obs = obs.to(self.device), critic_obs.to(self.device)
+        assert privileged_obs is not None
+        obs, privileged_obs = obs.to(self.device), privileged_obs.to(self.device)
+        self.history = torch.cat([self.history[:, 1:], obs.unsqueeze(1)], dim=1)
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
 
         ep_infos = []
-        rewbuffer = deque(maxlen=100)
-        lenbuffer = deque(maxlen=100)
+        teacher_rewbuffer = deque(maxlen=100)
+        teacher_lenbuffer = deque(maxlen=100)
+        student_rewbuffer = deque(maxlen=100)
+        student_lenbuffer = deque(maxlen=100)
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
@@ -136,10 +144,11 @@ class OnPolicyRunner:
             # Rollout
             with torch.inference_mode():
                 for i in range(self.num_steps_per_env):
-                    actions = self.alg.act(obs, critic_obs)
+                    actions = self.alg.act(obs, privileged_obs, self.history.flatten(1))
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions)
-                    critic_obs = privileged_obs if privileged_obs is not None else obs
-                    obs, critic_obs, rewards, dones = obs.to(self.device), critic_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    obs, privileged_obs, rewards, dones = obs.to(self.device), privileged_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    self.history[dones > 0] = 0.0
+                    self.history = torch.cat([self.history[:, 1:], obs.unsqueeze(1)], dim=1)
                     self.alg.process_env_step(rewards, dones, infos)
                     
                     if self.log_dir is not None:
@@ -148,20 +157,28 @@ class OnPolicyRunner:
                             ep_infos.append(infos['episode'])
                         cur_reward_sum += rewards
                         cur_episode_length += 1
-                        new_ids = (dones > 0).nonzero(as_tuple=False)
-                        rewbuffer.extend(cur_reward_sum[new_ids][:, 0].cpu().numpy().tolist())
-                        lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
-                        cur_reward_sum[new_ids] = 0
-                        cur_episode_length[new_ids] = 0
+                        new_ids = (dones > 0).nonzero(as_tuple=False).flatten()
+                        if new_ids.shape[0]:
+                            ti = self.alg.teacher_env_idxs
+                            teacher_ids = new_ids[torch.isin(new_ids, ti)]
+                            student_ids = new_ids[~torch.isin(new_ids, ti)]
+                            teacher_rewbuffer.extend(cur_reward_sum[teacher_ids].cpu().numpy().tolist())
+                            teacher_lenbuffer.extend(cur_episode_length[teacher_ids].cpu().numpy().tolist())
+                            student_rewbuffer.extend(cur_reward_sum[student_ids].cpu().numpy().tolist())
+                            student_lenbuffer.extend(cur_episode_length[student_ids].cpu().numpy().tolist())
+                            cur_reward_sum[new_ids] = 0
+                            cur_episode_length[new_ids] = 0
 
                 stop = time.time()
                 collection_time = stop - start
 
                 # Learning step
                 start = stop
-                self.alg.compute_returns(critic_obs)
+                self.alg.compute_returns(privileged_obs, self.history.flatten(1))
             
-            mean_value_loss, mean_surrogate_loss = self.alg.update()
+            mean_value_loss, mean_surrogate_loss, mean_teacher_surrogate_loss, \
+                mean_student_surrogate_loss, mean_entropy_loss, \
+                mean_student_context_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
@@ -197,41 +214,53 @@ class OnPolicyRunner:
 
         self.writer.add_scalar('Loss/value_function', locs['mean_value_loss'], locs['it'])
         self.writer.add_scalar('Loss/surrogate', locs['mean_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/surrogate_teacher', locs['mean_teacher_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/surrogate_student', locs['mean_student_surrogate_loss'], locs['it'])
+        self.writer.add_scalar('Loss/entropy', locs['mean_entropy_loss'], locs['it'])
+        self.writer.add_scalar('Loss/student_context', locs['mean_student_context_loss'], locs['it'])
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
         self.writer.add_scalar('Perf/collection time', locs['collection_time'], locs['it'])
         self.writer.add_scalar('Perf/learning_time', locs['learn_time'], locs['it'])
-        if len(locs['rewbuffer']) > 0:
-            self.writer.add_scalar('Train/mean_reward', statistics.mean(locs['rewbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_episode_length', statistics.mean(locs['lenbuffer']), locs['it'])
-            self.writer.add_scalar('Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
-            self.writer.add_scalar('Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
+        if len(locs['teacher_rewbuffer']) > 0:
+            self.writer.add_scalar('Train/mean_teacher_reward', statistics.mean(locs['teacher_rewbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_teacher_episode_length', statistics.mean(locs['teacher_lenbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_teacher_reward/time', statistics.mean(locs['teacher_rewbuffer']), self.tot_time)
+            self.writer.add_scalar('Train/mean_teacher_episode_length/time', statistics.mean(locs['teacher_lenbuffer']), self.tot_time)
+        if len(locs['student_rewbuffer']) > 0:
+            self.writer.add_scalar('Train/mean_student_reward', statistics.mean(locs['student_rewbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_student_episode_length', statistics.mean(locs['student_lenbuffer']), locs['it'])
+            self.writer.add_scalar('Train/mean_student_reward/time', statistics.mean(locs['student_rewbuffer']), self.tot_time)
+            self.writer.add_scalar('Train/mean_student_episode_length/time', statistics.mean(locs['student_lenbuffer']), self.tot_time)
+        if hasattr(self.env, 'terrain_levels'):
+            mean_teacher_terrain_level = self.env.terrain_levels[self.alg.teacher_env_idxs].float().mean()
+            mean_student_terrain_level = self.env.terrain_levels[self.alg.student_env_idxs].float().mean()
+            self.writer.add_scalar('Train/mean_teacher_terrain_level', mean_teacher_terrain_level, locs['it'])
+            self.writer.add_scalar('Train/mean_student_terrain_level', mean_student_terrain_level, locs['it'])
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
 
-        if len(locs['rewbuffer']) > 0:
-            log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
-                          f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
-                            'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"""
-                          f"""{'Mean reward:':>{pad}} {statistics.mean(locs['rewbuffer']):.2f}\n"""
-                          f"""{'Mean episode length:':>{pad}} {statistics.mean(locs['lenbuffer']):.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
-        else:
-            log_string = (f"""{'#' * width}\n"""
-                          f"""{str.center(width, ' ')}\n\n"""
-                          f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
-                            'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
-                          f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
-                          f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
-                          f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
-                        #   f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
-                        #   f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n""")
+        log_string = (f"""{'#' * width}\n"""
+                      f"""{str.center(width, ' ')}\n\n"""
+                      f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
+                        'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
+                      f"""{'Value function loss:':>{pad}} {locs['mean_value_loss']:.4f}\n"""
+                      f"""{'Surrogate loss:':>{pad}} {locs['mean_surrogate_loss']:.4f}\n"""
+                      f"""{'Teacher surrogate loss:':>{pad}} {locs['mean_teacher_surrogate_loss']:.4f}\n"""
+                      f"""{'Student surrogate loss:':>{pad}} {locs['mean_student_surrogate_loss']:.4f}\n"""
+                      f"""{'Entropy loss:':>{pad}} {locs['mean_entropy_loss']:.4f}\n"""
+                      f"""{'Student context loss:':>{pad}} {locs['mean_student_context_loss']:.4f}\n"""
+                      f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
+        if len(locs['teacher_rewbuffer']):
+            log_string += (f"""{'Mean teacher reward:':>{pad}} {statistics.mean(locs['teacher_rewbuffer']):.2f}\n"""
+                           f"""{'Mean teacher episode length:':>{pad}} {statistics.mean(locs['teacher_lenbuffer']):.2f}\n""")
+        if len(locs['student_rewbuffer']):
+            log_string += (f"""{'Mean student reward:':>{pad}} {statistics.mean(locs['student_rewbuffer']):.2f}\n"""
+                           f"""{'Mean student episode length:':>{pad}} {statistics.mean(locs['student_lenbuffer']):.2f}\n""")
+        if hasattr(self.env, 'terrain_levels'):
+            log_string += (f"""{'Mean teacher terrain level:':>{pad}} {mean_teacher_terrain_level:.2f}\n"""
+                           f"""{'Mean student terrain level:':>{pad}} {mean_student_terrain_level:.2f}\n""")
 
         log_string += ep_string
         log_string += (f"""{'-' * width}\n"""
@@ -245,7 +274,8 @@ class OnPolicyRunner:
     def save(self, path, infos=None):
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
-            'optimizer_state_dict': self.alg.optimizer.state_dict(),
+            'optimizer1_state_dict': self.alg.optimizer1.state_dict(),
+            'optimizer2_state_dict': self.alg.optimizer2.state_dict(),
             'iter': self.current_learning_iteration,
             'infos': infos,
             }, path)
@@ -254,7 +284,8 @@ class OnPolicyRunner:
         loaded_dict = torch.load(path)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'])
         if load_optimizer:
-            self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
+            self.alg.optimizer1.load_state_dict(loaded_dict['optimizer1_state_dict'])
+            self.alg.optimizer2.load_state_dict(loaded_dict['optimizer2_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
         return loaded_dict['infos']
 

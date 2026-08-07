@@ -31,7 +31,8 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-  
+
+import itertools
 from rsl_rl.modules import ActorCritic
 from rsl_rl.storage import RolloutStorage
 
@@ -39,6 +40,8 @@ class PPO:
     actor_critic: ActorCritic
     def __init__(self,
                  actor_critic,
+                 num_envs,
+                 history_length,
                  num_learning_epochs=1,
                  num_mini_batches=1,
                  clip_param=0.2,
@@ -47,10 +50,13 @@ class PPO:
                  value_loss_coef=1.0,
                  entropy_coef=0.0,
                  learning_rate=1e-3,
+                 student_encoder_learning_rate=1e-3,
                  max_grad_norm=1.0,
                  use_clipped_value_loss=True,
                  schedule="fixed",
                  desired_kl=0.01,
+                 teacher_env_ratio=0.75,
+                 student_ppo_coef=1.0,
                  device='cpu',
                  ):
 
@@ -59,12 +65,21 @@ class PPO:
         self.desired_kl = desired_kl
         self.schedule = schedule
         self.learning_rate = learning_rate
+        self.history_length = history_length
+        self.student_ppo_coef = student_ppo_coef
 
         # PPO components
         self.actor_critic = actor_critic
         self.actor_critic.to(self.device)
         self.storage = None # initialized later
-        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=learning_rate)
+        params1 = [
+            {"params": self.actor_critic.teacher_encoder.parameters()},
+            {"params": self.actor_critic.critic.parameters()},
+            {"params": self.actor_critic.actor.parameters()},
+            {"params": self.actor_critic.std}
+        ]
+        self.optimizer1 = optim.Adam(params1, lr=learning_rate)
+        self.optimizer2 = optim.Adam(self.actor_critic.student_encoder.parameters(), lr=student_encoder_learning_rate)
         self.transition = RolloutStorage.Transition()
 
         # PPO parameters
@@ -77,9 +92,21 @@ class PPO:
         self.lam = lam
         self.max_grad_norm = max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
+        self.teacher_num_envs = max(int(num_envs * teacher_env_ratio), 1)
+        self.student_num_envs = num_envs - self.teacher_num_envs
+        self.student_env_idxs = torch.div(
+            torch.arange(self.student_num_envs, device=self.device) * num_envs,
+            self.student_num_envs,
+            rounding_mode="floor",
+        )
+        teacher_mask = torch.ones(num_envs, dtype=torch.bool, device=self.device)
+        teacher_mask[self.student_env_idxs] = False
+        self.teacher_env_idxs = torch.arange(num_envs, device=self.device)[teacher_mask]
+        assert len(self.teacher_env_idxs) == self.teacher_num_envs, f"{len(self.teacher_env_idxs)=} != {self.teacher_num_envs=}"
+        assert len(self.student_env_idxs) == self.student_num_envs, f"{len(self.student_env_idxs)=} != {self.student_num_envs=}"
 
     def init_storage(self, num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape):
-        self.storage = RolloutStorage(num_envs, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
+        self.storage = RolloutStorage(num_envs, self.teacher_num_envs, self.history_length, num_transitions_per_env, actor_obs_shape, critic_obs_shape, action_shape, self.device)
 
     def test_mode(self):
         self.actor_critic.test()
@@ -87,101 +114,182 @@ class PPO:
     def train_mode(self):
         self.actor_critic.train()
 
-    def act(self, obs, critic_obs):
-        if self.actor_critic.is_recurrent:
-            self.transition.hidden_states = self.actor_critic.get_hidden_states()
+    def act(self, obs, privileged_obs, history):
+        history = history.flatten(1).clone()
+        def get_results(obs, privileged_obs, history, is_teacher):
+            actions = self.actor_critic.act(obs, privileged_obs, history, is_teacher).detach()
+            return (
+                actions,
+                self.actor_critic.evaluate(privileged_obs, history, is_teacher).detach(),
+                self.actor_critic.get_actions_log_prob(actions).detach(),
+                self.actor_critic.action_mean.detach(),
+                self.actor_critic.action_std.detach(),
+            )
+        ti, si = self.teacher_env_idxs, self.student_env_idxs
+        teacher_results = get_results(obs[ti], privileged_obs[ti], history[ti], True)
+        student_results = get_results(obs[si], privileged_obs[si], history[si], False)
+        results = []
+        for x1, x2 in zip(teacher_results, student_results):
+            results.append(torch.cat([x1, x2], dim=0))
         # Compute the actions and values
-        self.transition.actions = self.actor_critic.act(obs).detach()
-        self.transition.values = self.actor_critic.evaluate(critic_obs).detach()
-        self.transition.actions_log_prob = self.actor_critic.get_actions_log_prob(self.transition.actions).detach()
-        self.transition.action_mean = self.actor_critic.action_mean.detach()
-        self.transition.action_sigma = self.actor_critic.action_std.detach()
-        # need to record obs and critic_obs before env.step()
-        self.transition.observations = obs
-        self.transition.critic_observations = critic_obs
-        return self.transition.actions
+        self.transition.actions = results[0]
+        self.transition.values = results[1]
+        self.transition.actions_log_prob = results[2]
+        self.transition.action_mean = results[3]
+        self.transition.action_sigma = results[4]
+        # need to record obs, privileged_obs and history before env.step()
+        self.transition.history = torch.cat([history[ti], history[si]], dim=0)
+        self.transition.observations = torch.cat([obs[ti], obs[si]], dim=0)
+        self.transition.critic_observations = torch.cat([privileged_obs[ti], privileged_obs[si]], dim=0)
+        real_actions = torch.zeros_like(self.transition.actions)
+        real_actions[ti] = self.transition.actions[:self.teacher_num_envs]
+        real_actions[si] = self.transition.actions[self.teacher_num_envs:]
+        return real_actions
     
     def process_env_step(self, rewards, dones, infos):
-        self.transition.rewards = rewards.clone()
-        self.transition.dones = dones
+        ti, si = self.teacher_env_idxs, self.student_env_idxs
+        rewards = rewards.clone()
+        self.transition.rewards = torch.cat([rewards[ti], rewards[si]], dim=0)
+        self.transition.dones = torch.cat([dones[ti], dones[si]], dim=0)
         # Bootstrapping on time outs
         if 'time_outs' in infos:
-            self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * infos['time_outs'].unsqueeze(1).to(self.device), 1)
+            time_outs = torch.cat([infos['time_outs'][ti], infos['time_outs'][si]], dim=0)
+            self.transition.rewards += self.gamma * torch.squeeze(self.transition.values * time_outs.unsqueeze(1).to(self.device), 1)
 
         # Record the transition
         self.storage.add_transitions(self.transition)
         self.transition.clear()
         self.actor_critic.reset(dones)
     
-    def compute_returns(self, last_critic_obs):
-        last_values= self.actor_critic.evaluate(last_critic_obs).detach()
+    def compute_returns(self, last_privileged_obs, last_history):
+        ti, si = self.teacher_env_idxs, self.student_env_idxs
+        last_values = torch.cat([
+            self.actor_critic.evaluate(last_privileged_obs[ti], last_history[ti], True).detach(),
+            self.actor_critic.evaluate(last_privileged_obs[si], last_history[si], False).detach(),
+        ], dim=0)
         self.storage.compute_returns(last_values, self.gamma, self.lam)
 
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
-        if self.actor_critic.is_recurrent:
-            generator = self.storage.reccurent_mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        else:
-            generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-        for obs_batch, critic_obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
-            old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch in generator:
+        mean_teacher_surrogate_loss = 0
+        mean_student_surrogate_loss = 0
+        mean_entropy_loss = 0
+        mean_student_context_loss = 0
+        assert not self.actor_critic.is_recurrent
+        data = list(self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs))
+        teacher_samples = self.teacher_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
+        student_samples = self.student_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
+        for sample in data:
+            (
+                obs_batch, privileged_obs_batch, actions_batch, history_batch,
+                target_values_batch, advantages_batch, returns_batch,
+                old_actions_log_prob_batch, old_mu_batch, old_sigma_batch,
+                hid_states_batch, masks_batch
+            ) = sample
+            def get_results(start, end, is_teacher):
+                self.actor_critic.act(obs_batch[start:end], privileged_obs_batch[start:end], history_batch[start:end], is_teacher)
+                actions_log_prob = self.actor_critic.get_actions_log_prob(actions_batch[start:end])
+                value = self.actor_critic.evaluate(privileged_obs_batch[start:end], history_batch[start:end], is_teacher)
+                mu = self.actor_critic.action_mean
+                sigma = self.actor_critic.action_std
+                entropy = self.actor_critic.entropy
+                return actions_log_prob, value, mu, sigma, entropy
+            teacher_results = get_results(0, teacher_samples, True)
+            student_results = get_results(teacher_samples, teacher_samples + student_samples, False)
+            results = []
+            for x1, x2 in zip(teacher_results, student_results):
+                results.append(torch.cat([x1, x2], dim=0))
+            actions_log_prob_batch = results[0]
+            value_batch = results[1]
+            mu_batch = results[2]
+            sigma_batch = results[3]
+            entropy_batch = results[4]
 
+            # KL
+            if self.desired_kl != None and self.schedule == 'adaptive':
+                with torch.inference_mode():
+                    kl = torch.sum(
+                        torch.log(sigma_batch / old_sigma_batch + 1.e-5) + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
+                    kl_mean = torch.mean(kl)
 
-                self.actor_critic.act(obs_batch, masks=masks_batch, hidden_states=hid_states_batch[0])
-                actions_log_prob_batch = self.actor_critic.get_actions_log_prob(actions_batch)
-                value_batch = self.actor_critic.evaluate(critic_obs_batch, masks=masks_batch, hidden_states=hid_states_batch[1])
-                mu_batch = self.actor_critic.action_mean
-                sigma_batch = self.actor_critic.action_std
-                entropy_batch = self.actor_critic.entropy
+                    if kl_mean > self.desired_kl * 2.0:
+                        self.learning_rate = max(1e-5, self.learning_rate / 1.5)
+                    elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
+                        self.learning_rate = min(1e-2, self.learning_rate * 1.5)
 
-                # KL
-                if self.desired_kl != None and self.schedule == 'adaptive':
-                    with torch.inference_mode():
-                        kl = torch.sum(
-                            torch.log(sigma_batch / old_sigma_batch + 1.e-5) + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
-                        kl_mean = torch.mean(kl)
+                    for param_group in self.optimizer1.param_groups:
+                        param_group['lr'] = self.learning_rate
 
-                        if kl_mean > self.desired_kl * 2.0:
-                            self.learning_rate = max(1e-5, self.learning_rate / 1.5)
-                        elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
-                            self.learning_rate = min(1e-2, self.learning_rate * 1.5)
-                        
-                        for param_group in self.optimizer.param_groups:
-                            param_group['lr'] = self.learning_rate
+            # Surrogate loss
+            ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
+            surrogate = -torch.squeeze(advantages_batch) * ratio
+            surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
+                                                                            1.0 + self.clip_param)
+            surrogate_losses = torch.max(surrogate, surrogate_clipped)
+            teacher_surrogate_loss = surrogate_losses[:teacher_samples].mean()
+            student_surrogate_loss = surrogate_losses[teacher_samples:].mean()
+            surrogate_loss = teacher_surrogate_loss + self.student_ppo_coef * student_surrogate_loss
 
+            # Value function loss
+            if self.use_clipped_value_loss:
+                value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(-self.clip_param,
+                                                                                                self.clip_param)
+                value_losses = (value_batch - returns_batch).pow(2)
+                value_losses_clipped = (value_clipped - returns_batch).pow(2)
+                value_loss = torch.max(value_losses, value_losses_clipped).mean()
+            else:
+                value_loss = (returns_batch - value_batch).pow(2).mean()
 
-                # Surrogate loss
-                ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
-                surrogate = -torch.squeeze(advantages_batch) * ratio
-                surrogate_clipped = -torch.squeeze(advantages_batch) * torch.clamp(ratio, 1.0 - self.clip_param,
-                                                                                1.0 + self.clip_param)
-                surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+            loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
-                # Value function loss
-                if self.use_clipped_value_loss:
-                    value_clipped = target_values_batch + (value_batch - target_values_batch).clamp(-self.clip_param,
-                                                                                                    self.clip_param)
-                    value_losses = (value_batch - returns_batch).pow(2)
-                    value_losses_clipped = (value_clipped - returns_batch).pow(2)
-                    value_loss = torch.max(value_losses, value_losses_clipped).mean()
-                else:
-                    value_loss = (returns_batch - value_batch).pow(2).mean()
+            # Gradient step
+            self.optimizer1.zero_grad()
+            loss.backward()
+            params_to_clip = itertools.chain.from_iterable(g['params'] for g in self.optimizer1.param_groups)
+            nn.utils.clip_grad_norm_(params_to_clip, self.max_grad_norm)
+            self.optimizer1.step()
 
-                loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
+            mean_value_loss += value_loss.item()
+            mean_surrogate_loss += surrogate_loss.item()
+            mean_teacher_surrogate_loss += teacher_surrogate_loss.item()
+            mean_student_surrogate_loss += student_surrogate_loss.item()
+            mean_entropy_loss += entropy_batch.mean().item()
 
-                # Gradient step
-                self.optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                self.optimizer.step()
+        for sample in data:
+            (
+                obs_batch, privileged_obs_batch, actions_batch, history_batch,
+                target_values_batch, advantages_batch, returns_batch,
+                old_actions_log_prob_batch, old_mu_batch, old_sigma_batch,
+                hid_states_batch, masks_batch
+            ) = sample
+            # Temporary student encoder update
+            student_context = self.actor_critic.encode_student(history_batch[teacher_samples:])
+            with torch.no_grad():
+                teacher_context = self.actor_critic.encode_teacher(privileged_obs_batch[teacher_samples:])
+            student_context_loss = (teacher_context - student_context).pow(2).mean()
 
-                mean_value_loss += value_loss.item()
-                mean_surrogate_loss += surrogate_loss.item()
+            self.optimizer2.zero_grad()
+            student_context_loss.backward()
+            nn.utils.clip_grad_norm_(self.actor_critic.student_encoder.parameters(), self.max_grad_norm)
+            self.optimizer2.step()
+
+            mean_student_context_loss += student_context_loss.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
+        mean_teacher_surrogate_loss /= num_updates
+        mean_student_surrogate_loss /= num_updates
+        mean_entropy_loss /= num_updates
+        mean_student_context_loss /= num_updates
         self.storage.clear()
 
-        return mean_value_loss, mean_surrogate_loss
+        return (
+            mean_value_loss,
+            mean_surrogate_loss,
+            mean_teacher_surrogate_loss,
+            mean_student_surrogate_loss,
+            mean_entropy_loss,
+            mean_student_context_loss,
+        )

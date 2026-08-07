@@ -14,7 +14,10 @@
 - HIM 负责从历史本体感知中估计速度和隐式机器人响应。
 - 教师特权表征只作为学生表征的辅助约束，不能取代学生自己的 PPO 轨迹。
 
-本文只规划修改，不要求一次完成全部代码。建议严格按照阶段顺序推进，每个阶段通过验收后再进入下一阶段。
+本文只规划修改，不要求一次完成全部代码。教师对齐采用渐进路线：先完成无对齐的
+CTS + HIM 聚类基线，再实现简单的 cosine latent 对齐，最后实现 prototype-level
+分配对齐。cosine 和 prototype 是两种独立对照方案，不在同一次正式实验中叠加。
+建议严格按照阶段顺序推进，每个阶段通过验收后再进入下一阶段。
 
 ## 2. 先固定算法定义
 
@@ -85,6 +88,7 @@ action_student = actor(concat(current_obs, student_context))
 - him_source_encoder；
 - him_target_encoder；
 - HIM prototypes。
+- 可选的 teacher_projection。
 
 建议 Critic 按 CTS 的设计接收：
 
@@ -212,15 +216,15 @@ student_context = student_context.detach()
 
 - him_source_encoder；
 - him_target_encoder；
-- prototypes。
+- prototypes；
+- teacher_projection（仅 prototype alignment 模式）。
 
-第一版表征总损失：
+第一步只训练 HIM 自身的速度估计和聚类表征，不加入教师对齐：
 
 ~~~text
-L_repr =
+L_repr_base =
     velocity_loss_coef * L_velocity
   + him_loss_coef * L_swav
-  + align_loss_coef * L_align
 ~~~
 
 各项定义如下：
@@ -233,21 +237,36 @@ L_velocity = MSE(predicted_velocity, true_base_velocity)
 L_swav = swapped_assignment_loss(z_him, z_next_response)
 ~~~
 
-~~~text
-L_align = 1 - cosine_similarity(z_him, stop_gradient(z_teacher))
-~~~
+其中 L_swav 必须保留 HIM 的完整 prototype、Sinkhorn balanced assignment 和
+swapped-assignment 计算。该损失使 history view 和 future-response view 获得一致且相对
+均衡的 prototype 分配，是本融合方案保留 HIM 聚类能力的核心。
 
-z_him 和 z_teacher 都应做 L2 normalization。
+教师对齐只作为 L_repr_base 之上的可选实验项。第一版训练必须令
+alignment_type = "none"，确认 HIM 聚类稳定后，再分别测试 cosine 和 prototype 两种
+对齐方式。两种对齐不能在同一组对比实验中同时开启。
 
-### 4.3 为什么不建议一开始使用强 MSE 对齐
+### 4.3 第一版简单方案：cosine latent 对齐
 
 CTS 的 z_teacher 是由策略梯度塑造的特权表征，HIM 的 z_him 是由下一时刻响应和 prototype 塑造的对比表征。两者的坐标系没有天然逐维对应关系。
 
-因此第一版建议：
+直接 MSE 要求逐维数值一致，不适合这里的异构表征。为了先从简单方案开始，可在
+CTS + HIM 基线稳定后增加 cosine alignment：
 
-- 使用 cosine alignment；
+~~~text
+L_align_cosine =
+    1 - cosine_similarity(z_him, stop_gradient(z_teacher))
+
+L_repr_cosine = L_repr_base + align_loss_coef * L_align_cosine
+~~~
+
+z_him 和 z_teacher 都应先做 L2 normalization。该方案实现简单，适合用于快速验证
+教师指导是否有效，但它仍然在对齐语义不同的 latent，可能压坏 HIM 已形成的聚类结构，
+因此只能作为第一版方案和后续消融基线，不能预先假定它一定优于无对齐版本。
+
+实现要求：
+
 - teacher latent 停止梯度；
-- align_loss_coef 从较小数值开始；
+- align_loss_coef 从较小数值开始，并在 warmup 前保持为 0；
 - 观察 velocity loss 和 SwAV loss 正常后，再逐渐增加对齐强度。
 
 可参考的起始配置，而非最终最优值：
@@ -255,55 +274,82 @@ CTS 的 z_teacher 是由策略梯度塑造的特权表征，HIM 的 z_him 是由
 ~~~text
 velocity_loss_coef = 1.0
 him_loss_coef = 1.0
-align_loss_coef = 0.1
+alignment_type = "none"
+align_loss_coef = 0.1  # 仅 alignment_type="cosine" 时生效
 align_warmup_iterations = 100
 teacher_env_ratio = 0.75
 num_prototypes = 16
 ~~~
 
-如果发现加入 alignment 后 terrain level 或 velocity estimation 明显退化，应先把 align_loss_coef 设为 0，验证 CTS + HIM 无对齐版本，而不是同时调整奖励和网络宽度。
+如果加入 cosine alignment 后 terrain level、velocity estimation 或 prototype perplexity
+明显退化，应切回同配置的 alignment_type = "none" 基线定位问题，而不是同时调整奖励、
+网络宽度或聚类超参数。
 
-### 4.4 后续可升级为三视图原型对齐
+### 4.4 第二版升级方案：prototype 分配对齐
 
-第一版稳定后，可以将直接 cosine alignment 升级为三视图对比：
+如果实验目标是最大限度保留 HIM 的聚类分配优势，应在 cosine 方案完成后，单独实现
+prototype-level alignment。三种视图为：
 
 ~~~text
 history view:       z_him
-privileged view:    z_teacher
+privileged view:    z_teacher_projected
 future response:    z_next
 ~~~
 
-在共享 prototype 空间中对齐：
+teacher_encoder 的输出不能直接与 HIM prototype 计算相似度，必须先经过独立的
+teacher_projection，并保持 teacher_encoder stop-gradient。teacher_projection 由
+representation optimizer 管理，用 next-response 的分配训练它预测同一聚类语义：
+
+~~~text
+q_next    = sinkhorn(score(z_next, prototypes))
+p_teacher = softmax(score(
+    teacher_projection(stopgrad(z_teacher)), stopgrad(prototypes)
+))
+L_teacher_prototype = CE(stopgrad(q_next), p_teacher)
+~~~
+
+教师相关 loss 中使用 stop-gradient prototype weights，使 prototypes 仍然只由 HIM
+原始 L_swav 更新。这样教师负责学习和指导已有聚类分配，而不会反过来任意重塑 HIM
+的聚类中心。
+
+teacher_projection 稳定后，再让教师的平衡分配指导学生：
+
+~~~text
+q_teacher = sinkhorn(score(z_teacher_projected, prototypes))
+p_him     = softmax(score(z_him, prototypes))
+L_prototype_align = CE(stopgrad(q_teacher), p_him)
+
+L_repr_prototype =
+    L_repr_base
+  + teacher_prototype_loss_coef * L_teacher_prototype
+  + prototype_align_coef * L_prototype_align
+~~~
+
+这样对齐的是“样本属于哪个隐式响应簇”，而不是强迫两个 latent 的坐标逐维一致。在
+共享 prototype 空间中的关系为：
 
 - z_him 与 z_next：HIM 原始目标；
-- z_him 与 z_teacher：CTS 教师指导；
-- 可选 z_teacher 与 z_next：限制教师表征关注机器人响应。
+- z_teacher_projected 与 z_next：训练教师投影预测响应簇；
+- z_him 与 z_teacher_projected：CTS 教师提供 prototype 分配指导。
 
-该版本更有研究创新性，但不应作为第一次手动修改的起点。
+该版本更符合保留 HIM 聚类能力的目标，但实现和调参成本更高，不作为第一次手动修改的
+起点。它应与 cosine 方案分别从相同 CTS + HIM 基线出发进行比较，不能把 prototype
+alignment 叠加在 cosine alignment 上后再声称两者是公平对比。
 
 ## 5. 文件修改总览
 
-建议新增以下文件，不要覆盖当前 PPO 文件：
+当前工作在独立 cts 分支中进行，保留现有算法、类和任务名称，直接扩展以下训练文件：
 
-| 文件 | 用途 | 主要参考 |
+| 文件 | 修改内容 | 主要参考 |
 | --- | --- | --- |
-| rsl_rl/rsl_rl/modules/him_estimator.py | HIM source、target、prototype、Sinkhorn | HIMLoco 的 him_estimator.py |
-| rsl_rl/rsl_rl/modules/actor_critic_cts_him.py | 教师/学生编码与共享 Actor-Critic | CTS 的 actor_critic_cts.py |
-| rsl_rl/rsl_rl/algorithms/cts_him.py | 两组 PPO 和表征更新 | CTS 的 cts.py、HIM 的 him_ppo.py |
-| rsl_rl/rsl_rl/storage/rollout_storage_cts_him.py | 保存分组轨迹、历史和下一响应 | CTS/HIM 两种 storage |
-| rsl_rl/rsl_rl/runners/on_policy_runner_cts_him.py | 维护 history、收集下一状态 | CTS runner |
+| rsl_rl/rsl_rl/modules/actor_critic.py | 教师/学生编码与共享 Actor-Critic | CTS 的 actor_critic_cts.py |
+| rsl_rl/rsl_rl/algorithms/ppo.py | 两组 PPO 和表征更新 | CTS 的 cts.py、HIM 的 him_ppo.py |
+| rsl_rl/rsl_rl/storage/rollout_storage.py | 保存分组轨迹、历史和下一响应 | CTS/HIM 两种 storage |
+| rsl_rl/rsl_rl/runners/on_policy_runner.py | 维护 history、收集下一状态 | CTS runner |
+| legged_gym/envs/base/legged_robot_config.py | 配置历史长度、编码器和分组 PPO 参数 | 当前 PPO 配置 |
 
-建议修改以下文件：
-
-| 文件 | 修改内容 |
-| --- | --- |
-| rsl_rl/rsl_rl/modules/__init__.py | 导出 HIMEstimator 和 ActorCriticCTSHIM |
-| rsl_rl/rsl_rl/algorithms/__init__.py | 导出 CTSHIM |
-| rsl_rl/rsl_rl/storage/__init__.py | 导出 RolloutStorageCTSHIM |
-| rsl_rl/rsl_rl/runners/__init__.py | 导出 OnPolicyRunnerCTSHIM |
-| legged_gym/envs/go2/go2_config.py | 添加 GO2RoughCfgCTSHIM |
-| legged_gym/envs/__init__.py | 注册 go2_cts_him |
-| legged_gym/utils/task_registry.py | 按配置选择 runner |
+阶段二只新增 rsl_rl/rsl_rl/modules/him_estimator.py，用于 HIM source、target、prototype
+和 Sinkhorn；ActorCritic、PPO、RolloutStorage、OnPolicyRunner 继续沿用现有名称。
 
 训练稳定以后再修改：
 
@@ -346,18 +392,22 @@ chore: record Go2 PPO fusion baseline
 
 目标：先让教师/学生并发 PPO 跑起来，不加入 HIM。
 
-#### 6.1 新建 CTS-HIM Actor-Critic 外壳
+#### 6.1 改造现有 Actor-Critic 外壳
 
-在 actor_critic_cts_him.py 中先实现：
+在 actor_critic.py 中先实现：
 
 ~~~text
 teacher_encoder(privileged_obs) -> 16
-temporary_student_encoder(history) -> 16
+teacher_context = true_base_velocity (3) + teacher_latent (16)
+temporary_student_encoder(history) -> predicted_velocity (3) + student_latent (16)
 actor(obs + velocity + latent) -> 12
 critic(privileged_obs + velocity + latent) -> 1
 ~~~
 
-临时学生编码器可以先使用普通 MLP，不做 SwAV。这样可以先验证 CTS 的分组、storage 和 PPO 是否正确。
+临时学生编码器可以先使用普通 MLP 输出 19 维 context，不做 SwAV。其前 3 维作为临时
+速度预测，后 16 维做 L2 normalization 后作为 student latent。这样阶段一就固定 Actor
+的 64 维输入，阶段二替换为 HIMEstimator 时无需改变 Actor 接口，同时可以先验证 CTS
+的分组、storage 和 PPO 是否正确。
 
 建议提供清晰接口：
 
@@ -369,7 +419,9 @@ evaluate_group(privileged_obs, history, is_teacher)
 act_student(obs, history)
 ~~~
 
-不要依赖模型内部固定 num_envs 的 history。训练 history 由 runner 管理，部署 history 由 play 或 C++ 管理。模型本身尽量保持无状态。
+不要依赖模型内部固定 num_envs 的 history。训练 history 由 runner 管理，Python play
+和 C++ 部署端分别维护自己的 history，模型本身保持无状态。所有路径统一使用“最旧帧在前、
+当前帧在最后”的排列，不直接照搬 HIMLoco 中“当前帧在最前”的切片方式。
 
 #### 6.2 教师和学生环境划分
 
@@ -400,28 +452,38 @@ storage 可以把教师样本和学生样本分别采样，再拼成：
 
 algorithm 必须知道边界位置，分别计算 group mean。
 
+阶段一使用两个互不重叠的优化器：
+
+- PPO optimizer：teacher_encoder、Actor、Critic 和 action std；
+- temporary student optimizer：temporary_student_encoder。
+
+临时学生只在 student mini-batch 上蒸馏教师的完整 19 维 context：
+
+~~~text
+teacher_context = concat(true_base_velocity, teacher_latent)
+student_context = concat(predicted_velocity, student_latent)
+L_temporary_student = MSE(
+    student_context,
+    stop_gradient(teacher_context),
+)
+~~~
+
+student_context 进入共享 Actor 和 Critic 前保持 detach。这样学生轨迹仍通过
+L_ppo_student 更新共享策略，但 PPO 不会绕过蒸馏目标直接更新临时学生编码器。
+
 在每个 iteration 输出：
 
 - teacher reward；
 - student reward；
 - teacher surrogate loss；
 - student surrogate loss；
+- temporary student context loss；
 - teacher/student terrain level。
 
-#### 6.4 修改 runner 选择方式
+#### 6.4 保持现有 runner 和 task 名称
 
-当前 task_registry.py 固定创建 OnPolicyRunner。建议改成显式映射，不直接使用无约束 eval：
-
-~~~python
-runner_classes = {
-    "OnPolicyRunner": OnPolicyRunner,
-    "OnPolicyRunnerCTSHIM": OnPolicyRunnerCTSHIM,
-}
-runner_class = runner_classes[train_cfg.runner_class_name]
-runner = runner_class(env, train_cfg_dict, log_dir, device=args.rl_device)
-~~~
-
-这样原始 go2 task 继续使用 OnPolicyRunner，新 task 使用 OnPolicyRunnerCTSHIM。
+当前实现位于独立 cts 分支，继续使用 OnPolicyRunner、ActorCritic、PPO、RolloutStorage
+和 go2 名称，不修改 task_registry，也不新增并行注册。main 分支保留原始 PPO 基线。
 
 #### 6.5 阶段 1 验收
 
@@ -430,7 +492,7 @@ runner = runner_class(env, train_cfg_dict, log_dir, device=args.rl_device)
 - teacher/student reward 都在变化；
 - PPO loss、value loss、entropy 均为有限值；
 - 临时 student latent reconstruction loss 能下降；
-- 原始 go2 task 不受影响。
+- cts 分支中的 go2 task 可以完成阶段一训练。
 
 建议提交：
 
@@ -444,7 +506,7 @@ feat: add concurrent teacher-student training skeleton
 
 #### 6.6 HIMEstimator 推荐接口
 
-不要直接复制 HIMEstimator.update 内部自带 optimizer 的写法。建议让 estimator 只负责前向和计算 loss，优化器统一由 CTSHIM 管理：
+不要直接复制 HIMEstimator.update 内部自带 optimizer 的写法。建议让 estimator 只负责前向和计算 loss，优化器统一由 PPO 管理：
 
 ~~~python
 class HIMEstimator(nn.Module):
@@ -487,13 +549,14 @@ history = torch.cat([history[:, 1:], obs.unsqueeze(1)], dim=1)
 
 每一步的正确时序：
 
-1. 用当前 obs 和 history 选择 action；
+1. 用当前 obs 和 history 选择 action，并在 transition 中保存动作前 history；
 2. env.step(action) 得到 next_obs、next_privileged_obs、done；
-3. 将“动作前 history”和“动作后 next target”保存到 transition；
+3. algorithm 保存已捕获的动作前 history 和动作后的 next target；
 4. 对 done 环境清零 history；
 5. 将 next_obs 追加到 history 末尾。
 
-不能在保存 transition 之前就把 next_obs 追加到 source history，否则 source 和 target 会错一帧。
+不能在保存 transition 之前就把 next_obs 追加到 source history，否则 source 和 target
+会错一帧。HIMEstimator 接收该排列时，当前帧应从 history 的最后 45 维读取。
 
 #### 6.8 终止 transition 必须屏蔽
 
@@ -558,9 +621,10 @@ old_sigma
 feat: add HIM response estimator to CTS student
 ~~~
 
-### 阶段 3：加入教师表征对齐
+### 阶段 3A：加入简单的 cosine 教师对齐
 
-目标：让 HIM 学生表征获得特权教师指导，同时保留 response representation。
+目标：用最小改动验证特权教师指导是否有益。该阶段以阶段 2 的 CTS + HIM 为共同基线，
+只加入 cosine alignment，不加入 teacher_projection 或 prototype alignment。
 
 更新顺序建议固定为：
 
@@ -605,12 +669,12 @@ iteration < warmup: current_align_coef = 0
 之后线性增加到 align_loss_coef
 ~~~
 
-阶段 3 验收：
+阶段 3A 验收：
 
 - teacher latent 不会收到 representation optimizer 梯度；
 - student encoder 不会收到 PPO optimizer 梯度；
 - 两个 optimizer 的参数集合没有交集；
-- alignment 加入后 velocity loss 和 prototype 使用率没有明显恶化；
+- cosine alignment 加入后 velocity loss、prototype perplexity 和分配熵没有明显恶化；
 - student reward 或 tracking 至少不比 align=0 明显下降。
 
 建议提交：
@@ -619,20 +683,86 @@ iteration < warmup: current_align_coef = 0
 feat: align CTS teacher and HIM student representations
 ~~~
 
-### 阶段 4：配置和任务注册
+### 阶段 3B：加入 prototype-level 教师对齐
 
-#### 6.11 新训练配置
+目标：在不要求 teacher/student latent 逐维一致的前提下，让教师通过 prototype 分配
+指导 HIM 学生，并与阶段 3A 做独立对比。
 
-在 go2_config.py 中新增 GO2RoughCfgCTSHIM，保留 GO2RoughCfg 作为环境配置。
+不要在阶段 3A 的 cosine loss 上继续叠加本方案。调试时可以从同一个阶段 2 checkpoint
+分别创建两个分支；正式实验应使用相同配置和随机种子分别从头训练。
+
+#### 6.11 增加教师投影头
+
+在 ActorCritic 中增加 teacher_projection，将 stop-gradient teacher latent
+映射到 HIM prototype 空间。teacher_projection 由 representation optimizer 管理，
+teacher_encoder 仍只由 PPO optimizer 管理。
+
+训练顺序：
+
+1. 正常计算 HIM 的 history/future-response swapped-assignment loss；
+2. 用 q_next 监督 p_teacher，先让 teacher_projection 学会预测 future-response cluster；
+3. warmup 结束且 teacher prototype prediction 不再接近随机后，用 q_teacher 指导 p_him；
+4. teacher_encoder 在两个 prototype loss 中都保持 stop-gradient。
+
+prototype 对齐伪代码：
+
+~~~python
+with torch.no_grad():
+    teacher_z = model.teacher_encoder(privileged_obs_batch)
+
+teacher_projected_z = normalize(model.teacher_projection(teacher_z))
+student_z = normalize(student_z)
+target_z = normalize(target_z)
+
+score_student = student_z @ prototypes.T  # 用于原始 L_swav
+score_target = target_z @ prototypes.T
+
+prototype_targets = prototypes.detach()
+score_student_align = student_z @ prototype_targets.T
+score_teacher = teacher_projected_z @ prototype_targets.T
+
+with torch.no_grad():
+    q_target = sinkhorn(score_target)
+    q_teacher = sinkhorn(score_teacher)
+
+p_teacher = softmax(score_teacher / temperature, dim=-1)
+p_student = softmax(score_student_align / temperature, dim=-1)
+
+teacher_prototype_loss = cross_entropy(q_target, p_teacher)
+prototype_align_loss = cross_entropy(q_teacher, p_student)
+~~~
+
+这里的 cross_entropy 表示 soft-target cross entropy。prototype_align_loss 只能在
+teacher_projection warmup 后启用。
+
+阶段 3B 验收：
+
+- teacher_projection 收到 representation gradient，teacher_encoder 不收到该梯度；
+- teacher/target prototype agreement 或交叉熵明显优于均匀随机基线；
+- prototype 使用率、perplexity 和分配熵没有塌缩；
+- 与 cosine 方案相比，使用相同训练预算、环境配置和随机种子；
+- 不以单次训练结果判断优劣。
+
+建议提交：
+
+~~~text
+feat: add prototype-level teacher alignment
+~~~
+
+### 阶段 4：配置和日志
+
+#### 6.12 扩展现有训练配置
+
+继续扩展 legged_robot_config.py 中的 LeggedRobotCfgPPO，不新增配置类或修改算法类名。
 
 建议结构：
 
 ~~~python
-class GO2RoughCfgCTSHIM(LeggedRobotCfgPPO):
-    runner_class_name = "OnPolicyRunnerCTSHIM"
+class LeggedRobotCfgPPO(BaseConfig):
+    runner_class_name = "OnPolicyRunner"
     history_length = 5
 
-    class policy(LeggedRobotCfgPPO.policy):
+    class policy:
         latent_dim = 16
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
@@ -641,36 +771,45 @@ class GO2RoughCfgCTSHIM(LeggedRobotCfgPPO):
         him_target_hidden_dims = [128, 64]
         num_prototypes = 16
 
-    class algorithm(LeggedRobotCfgPPO.algorithm):
+    class algorithm:
         teacher_env_ratio = 0.75
         student_encoder_learning_rate = 1.0e-3
         velocity_loss_coef = 1.0
         him_loss_coef = 1.0
+        alignment_type = "none"  # "none", "cosine", "prototype"
         align_loss_coef = 0.1
         align_warmup_iterations = 100
+        teacher_prototype_loss_coef = 1.0
+        prototype_align_coef = 0.1
+        prototype_align_warmup_iterations = 100
 
-    class runner(LeggedRobotCfgPPO.runner):
-        policy_class_name = "ActorCriticCTSHIM"
-        algorithm_class_name = "CTSHIM"
-        experiment_name = "go2_cts_him"
+    class runner:
+        policy_class_name = "ActorCritic"
+        algorithm_class_name = "PPO"
 ~~~
 
-#### 6.12 注册独立任务
+alignment_type 必须保证两种教师对齐互斥：
 
-在 legged_gym/envs/__init__.py 注册：
+- none：只训练 CTS + HIM，所有教师对齐系数视为 0；
+- cosine：只启用 align_loss_coef；
+- prototype：只启用 teacher_prototype_loss_coef 和 prototype_align_coef。
+
+#### 6.13 保持现有任务注册
+
+继续使用 legged_gym/envs/__init__.py 中已有的 go2 注册：
 
 ~~~python
 task_registry.register(
-    "go2_cts_him",
+    "go2",
     LeggedRobot,
     GO2RoughCfg(),
-    GO2RoughCfgCTSHIM(),
+    GO2RoughCfgPPO(),
 )
 ~~~
 
-不要把现有 go2 task 指向新配置。这样 PPO baseline 和融合算法能够长期共存。
+不新增 task_registry 映射。原始 PPO 基线由 main 分支保留，cts 分支中的 go2 使用融合算法。
 
-#### 6.13 日志必须增加
+#### 6.14 日志必须增加
 
 至少记录：
 
@@ -679,29 +818,37 @@ task_registry.register(
 - Loss/surrogate_student；
 - Loss/velocity_estimation；
 - Loss/swav；
-- Loss/teacher_alignment；
+- Loss/teacher_alignment_cosine；
+- Loss/teacher_prototype_prediction；
+- Loss/teacher_alignment_prototype；
 - Policy/entropy；
 - Representation/prototype_perplexity；
+- Representation/prototype_assignment_entropy；
+- Representation/prototype_usage_min/max；
+- Representation/teacher_target_prototype_agreement；
 - Representation/predicted_velocity_error_x/y/z；
 - Train/teacher_reward；
 - Train/student_reward；
 - Train/teacher_terrain_level；
 - Train/student_terrain_level。
 
-prototype perplexity 可以帮助发现表征塌缩。仅观察 SwAV loss 不足以判断 prototype 是否被均匀使用。
+prototype perplexity、分配熵和各 prototype 使用率可以帮助发现表征塌缩。仅观察
+SwAV loss 不足以判断 prototype 是否被均匀使用。未启用的 alignment loss 应记录为 0，
+同时记录 alignment_type，避免比较实验时混淆实际生效的方案。
 
 ## 7. 推荐实验顺序
 
-不要直接比较最终 full model。建议按以下顺序保存配置和 checkpoint：
+不要直接比较最终 full model。先建立共同的 CTS + HIM 基线，再让两种教师对齐方案从
+该基线独立分叉。建议按以下顺序保存配置和 checkpoint：
 
-| 实验 | CTS | 速度估计 | SwAV | 教师对齐 |
-| --- | ---: | ---: | ---: | ---: |
-| PPO baseline | 否 | 否 | 否 | 否 |
-| CTS | 是 | 否 | 否 | MSE 临时学生 |
-| CTS + velocity | 是 | 是 | 否 | 否 |
-| CTS + HIM | 是 | 是 | 是 | 否 |
-| CTS + HIM + align | 是 | 是 | 是 | cosine |
-| CTS + HIM + prototype align | 是 | 是 | 是 | prototype |
+| 实验 | CTS | 速度估计 | SwAV | alignment_type | 目的 |
+| --- | ---: | ---: | ---: | --- | --- |
+| PPO baseline | 否 | 否 | 否 | none | 原始策略基线 |
+| CTS | 是 | 否 | 否 | CTS 临时学生 MSE | 验证双分支 PPO |
+| CTS + velocity | 是 | 是 | 否 | none | 隔离速度估计收益 |
+| CTS + HIM | 是 | 是 | 是 | none | 聚类融合共同基线 |
+| CTS + HIM + cosine | 是 | 是 | 是 | cosine | 第一版简单教师对齐 |
+| CTS + HIM + prototype | 是 | 是 | 是 | prototype | 聚类分配教师对齐 |
 
 所有实验保持：
 
@@ -710,8 +857,13 @@ prototype perplexity 可以帮助发现表征塌缩。仅观察 SwAV loss 不足
 - 同一 terrain curriculum；
 - 同一 domain randomization；
 - 同一 action scale；
-- 同一训练步数；
+- 同一网络宽度和 prototype 数量；
+- 同一 batch size、并行环境数和训练步数；
 - 至少 3 个随机种子。
+
+cosine 和 prototype 两组必须使用相同的随机种子集合。调试阶段可以从同一个 CTS + HIM
+checkpoint 分叉以节省时间；正式结论必须分别从头训练，报告至少 3 个种子的均值和标准差，
+不能只比较各自最好的 checkpoint。
 
 优先比较：
 
@@ -720,7 +872,9 @@ prototype perplexity 可以帮助发现表征塌缩。仅观察 SwAV loss 不足
 - 随机推力后的存活率；
 - 学生与教师回报差距；
 - velocity estimation error；
-- prototype 使用率。
+- prototype perplexity、分配熵和使用率；
+- teacher/target prototype agreement；
+- 是否出现 NaN、单簇占用或表征塌缩。
 
 ## 8. 推理、导出与部署
 
@@ -735,6 +889,11 @@ prototype perplexity 可以帮助发现表征塌缩。仅观察 SwAV loss 不足
 - him_target_encoder；
 - prototypes；
 - PPO action distribution。
+
+prototype 和 Sinkhorn 只负责训练阶段塑造 z_him 的聚类结构。部署时 Actor 继续接收经过
+该聚类目标训练的连续 z_him，因此仍然保留聚类学习带来的表征收益。不要在单机器人或
+batch size 为 1 的推理路径中运行 Sinkhorn；其平衡分配依赖 batch 统计，训练和部署行为
+会不一致。
 
 部署模型只需要：
 
@@ -782,7 +941,7 @@ history shape = [num_envs, 5, 45]
 1. 更新 obs 中的手柄 command；
 2. history 左移一帧；
 3. 将当前 obs 放入最后一帧；
-4. 将 history flatten 后送入部署组合策略；
+4. 将当前 obs 和 history 送入学生策略；
 5. done 环境清零历史。
 
 ### 8.3 C++ MNN
@@ -818,17 +977,17 @@ feat: export and deploy history-based CTS-HIM policy
 ~~~bash
 python -m py_compile \
   rsl_rl/rsl_rl/modules/him_estimator.py \
-  rsl_rl/rsl_rl/modules/actor_critic_cts_him.py \
-  rsl_rl/rsl_rl/algorithms/cts_him.py \
-  rsl_rl/rsl_rl/storage/rollout_storage_cts_him.py \
-  rsl_rl/rsl_rl/runners/on_policy_runner_cts_him.py
+  rsl_rl/rsl_rl/modules/actor_critic.py \
+  rsl_rl/rsl_rl/algorithms/ppo.py \
+  rsl_rl/rsl_rl/storage/rollout_storage.py \
+  rsl_rl/rsl_rl/runners/on_policy_runner.py
 ~~~
 
 ### 9.2 小规模训练
 
 ~~~bash
 python legged_gym/scripts/train.py \
-  --task=go2_cts_him \
+  --task=go2 \
   --headless \
   --num_envs=64 \
   --max_iterations=5
@@ -840,7 +999,7 @@ python legged_gym/scripts/train.py \
 
 ~~~bash
 python legged_gym/scripts/train.py \
-  --task=go2_cts_him \
+  --task=go2 \
   --headless
 ~~~
 
@@ -899,16 +1058,26 @@ C++ 修改必须保持 -Wall -Wextra -Wpedantic 下无新增警告。
 
 ### 10.4 加入教师对齐后性能下降
 
-按顺序处理：
+先将 alignment_type 设为 none，确认同配置 CTS + HIM 基线正常，然后按当前方案分别排查。
 
-1. align_loss_coef 设为 0，确认 CTS + HIM 本身正常；
-2. 确认 teacher_z 使用 stop-gradient；
-3. 将 MSE 改为 cosine；
-4. 延长 warmup；
-5. 降低 align_loss_coef；
-6. 最后再考虑 prototype-level alignment。
+cosine 方案：
 
-不要通过修改 reward 来掩盖 representation loss 冲突。
+1. 确认 teacher_z 使用 stop-gradient；
+2. 确认 z_him 和 z_teacher 均已 L2 normalize；
+3. 延长 align_warmup_iterations；
+4. 降低 align_loss_coef；
+5. 检查 prototype perplexity 是否在启用 cosine 后下降。
+
+prototype 方案：
+
+1. 确认 teacher_encoder stop-gradient，而 teacher_projection 能收到梯度；
+2. 确认 teacher_projection 先由 q_next 监督完成 warmup；
+3. 检查 teacher/target prototype agreement 是否优于随机水平；
+4. 延长 prototype_align_warmup_iterations；
+5. 降低 prototype_align_coef，并检查各 prototype 使用率。
+
+不要同时开启 cosine 和 prototype 对齐，也不要通过修改 reward 来掩盖 representation
+loss 冲突。
 
 ### 10.5 仿真正常但 MNN 失败
 
@@ -931,7 +1100,8 @@ chore: record Go2 PPO fusion baseline
 feat: add concurrent teacher-student training skeleton
 feat: add HIM response estimator to CTS student
 feat: align CTS teacher and HIM student representations
-feat: add CTS-HIM task configuration and logging
+feat: add prototype-level teacher alignment
+feat: add CTS-HIM configuration and logging
 feat: export and deploy history-based CTS-HIM policy
 ~~~
 
@@ -941,18 +1111,21 @@ feat: export and deploy history-based CTS-HIM policy
 
 训练端完成：
 
-- go2 和 go2_cts_him 可以独立注册和训练；
+- cts 分支中的 go2 可以完成融合算法训练；
 - teacher/student PPO 都产生有效梯度；
 - student encoder 只由 representation optimizer 更新；
-- velocity、SwAV、alignment loss 都被记录；
+- velocity、SwAV、cosine alignment 和 prototype alignment 指标按启用模式正确记录；
+- alignment_type 保证 none、cosine、prototype 三种模式互斥；
 - done transition 不进入 future-response loss；
-- checkpoint 可以恢复两个 optimizer。
+- checkpoint 可以恢复 PPO 和 representation 两个 optimizer 的状态；prototype 模式下
+  teacher_projection 必须包含在 representation optimizer 及其 checkpoint 中。
 
 算法验证完成：
 
-- 至少完成 PPO、CTS、CTS + HIM、完整融合四组对比；
+- 至少完成 PPO、CTS、CTS + HIM、cosine alignment 和 prototype alignment 五组对比；
 - 至少 3 个随机种子；
-- tracking、terrain、push robustness 和 representation 指标都有记录。
+- cosine 与 prototype 使用相同随机种子、训练预算和环境配置；
+- tracking、terrain、push robustness、聚类分配和表征指标都有记录。
 
 部署端完成：
 

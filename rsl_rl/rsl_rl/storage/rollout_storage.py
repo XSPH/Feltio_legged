@@ -46,17 +46,22 @@ class RolloutStorage:
             self.action_mean = None
             self.action_sigma = None
             self.hidden_states = None
+            self.history = None
+
         
         def clear(self):
             self.__init__()
 
-    def __init__(self, num_envs, num_transitions_per_env, obs_shape, privileged_obs_shape, actions_shape, device='cpu'):
+    def __init__(self, num_envs, teacher_num_envs, history_length, num_transitions_per_env, obs_shape, privileged_obs_shape, actions_shape, device='cpu'):
 
         self.device = device
 
         self.obs_shape = obs_shape
         self.privileged_obs_shape = privileged_obs_shape
         self.actions_shape = actions_shape
+        self.teacher_num_envs = teacher_num_envs
+        self.student_num_envs = num_envs - teacher_num_envs
+        self.history_length = history_length
 
         # Core
         self.observations = torch.zeros(num_transitions_per_env, num_envs, *obs_shape, device=self.device)
@@ -67,6 +72,7 @@ class RolloutStorage:
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+        self.history = torch.zeros(num_transitions_per_env, num_envs, self.history_length * obs_shape[0], device=self.device)
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -91,6 +97,7 @@ class RolloutStorage:
         self.observations[self.step].copy_(transition.observations)
         if self.privileged_observations is not None: self.privileged_observations[self.step].copy_(transition.critic_observations)
         self.actions[self.step].copy_(transition.actions)
+        self.history[self.step].copy_(transition.history)
         self.rewards[self.step].copy_(transition.rewards.view(-1, 1))
         self.dones[self.step].copy_(transition.dones.view(-1, 1))
         self.values[self.step].copy_(transition.values)
@@ -145,91 +152,52 @@ class RolloutStorage:
         return trajectory_lengths.float().mean(), self.rewards.mean()
 
     def mini_batch_generator(self, num_mini_batches, num_epochs=8):
-        batch_size = self.num_envs * self.num_transitions_per_env
-        mini_batch_size = batch_size // num_mini_batches
-        indices = torch.randperm(num_mini_batches*mini_batch_size, requires_grad=False, device=self.device)
+        teacher_samples_num = self.teacher_num_envs * self.num_transitions_per_env
+        student_samples_num = self.student_num_envs * self.num_transitions_per_env
+        teacher_mini_batch_size = teacher_samples_num // num_mini_batches
+        student_mini_batch_size = student_samples_num // num_mini_batches
+        teacher_indices = torch.randperm(teacher_samples_num, requires_grad=False, device=self.device)
+        student_indices = teacher_samples_num + torch.randperm(student_samples_num, requires_grad=False, device=self.device)
 
-        observations = self.observations.flatten(0, 1)
+        obs_dims = list(range(2, self.observations.dim()))
+        observations = self.observations.permute(1, 0, *obs_dims).flatten(0, 1)
         if self.privileged_observations is not None:
-            critic_observations = self.privileged_observations.flatten(0, 1)
+            critic_dims = list(range(2, self.privileged_observations.dim()))
+            critic_observations = self.privileged_observations.permute(1, 0, *critic_dims).flatten(0, 1)
         else:
             critic_observations = observations
 
-        actions = self.actions.flatten(0, 1)
-        values = self.values.flatten(0, 1)
-        returns = self.returns.flatten(0, 1)
-        old_actions_log_prob = self.actions_log_prob.flatten(0, 1)
-        advantages = self.advantages.flatten(0, 1)
-        old_mu = self.mu.flatten(0, 1)
-        old_sigma = self.sigma.flatten(0, 1)
+        action_dims = list(range(2, self.actions.dim()))
+        actions = self.actions.permute(1, 0, *action_dims).flatten(0, 1)
+        old_mu = self.mu.permute(1, 0, *action_dims).flatten(0, 1)
+        old_sigma = self.sigma.permute(1, 0, *action_dims).flatten(0, 1)
+        hist_dims = list(range(2, self.history.dim()))
+        history = self.history.permute(1, 0, *hist_dims).flatten(0, 1)
+        values = self.values.permute(1, 0, 2).flatten(0, 1)
+        returns = self.returns.permute(1, 0, 2).flatten(0, 1)
+        old_actions_log_prob = self.actions_log_prob.permute(1, 0, 2).flatten(0, 1)
+        advantages = self.advantages.permute(1, 0, 2).flatten(0, 1)
 
-        for epoch in range(num_epochs):
+        def get_teacher_student_samples(data, slice):
+            (i1, i2), (j1, j2) = slice
+            return torch.cat([data[teacher_indices[i1:i2]], data[student_indices[j1:j2]]], 0).detach()
+
+        for _ in range(num_epochs):
             for i in range(num_mini_batches):
+                slice = (
+                    (i * teacher_mini_batch_size, (i+1) * teacher_mini_batch_size),
+                    (i * student_mini_batch_size, (i+1) * student_mini_batch_size),
+                )
 
-                start = i*mini_batch_size
-                end = (i+1)*mini_batch_size
-                batch_idx = indices[start:end]
-
-                obs_batch = observations[batch_idx]
-                critic_observations_batch = critic_observations[batch_idx]
-                actions_batch = actions[batch_idx]
-                target_values_batch = values[batch_idx]
-                returns_batch = returns[batch_idx]
-                old_actions_log_prob_batch = old_actions_log_prob[batch_idx]
-                advantages_batch = advantages[batch_idx]
-                old_mu_batch = old_mu[batch_idx]
-                old_sigma_batch = old_sigma[batch_idx]
-                yield obs_batch, critic_observations_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, \
+                obs_batch = get_teacher_student_samples(observations, slice)
+                critic_observations_batch = get_teacher_student_samples(critic_observations, slice)
+                actions_batch = get_teacher_student_samples(actions, slice)
+                target_values_batch = get_teacher_student_samples(values, slice)
+                returns_batch = get_teacher_student_samples(returns, slice)
+                old_actions_log_prob_batch = get_teacher_student_samples(old_actions_log_prob, slice)
+                advantages_batch = get_teacher_student_samples(advantages, slice)
+                old_mu_batch = get_teacher_student_samples(old_mu, slice)
+                old_sigma_batch = get_teacher_student_samples(old_sigma, slice)
+                history_batch = get_teacher_student_samples(history, slice)
+                yield obs_batch, critic_observations_batch, actions_batch, history_batch, target_values_batch, advantages_batch, returns_batch, \
                        old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None
-
-    # for RNNs only
-    def reccurent_mini_batch_generator(self, num_mini_batches, num_epochs=8):
-
-        padded_obs_trajectories, trajectory_masks = split_and_pad_trajectories(self.observations, self.dones)
-        if self.privileged_observations is not None: 
-            padded_critic_obs_trajectories, _ = split_and_pad_trajectories(self.privileged_observations, self.dones)
-        else: 
-            padded_critic_obs_trajectories = padded_obs_trajectories
-
-        mini_batch_size = self.num_envs // num_mini_batches
-        for ep in range(num_epochs):
-            first_traj = 0
-            for i in range(num_mini_batches):
-                start = i*mini_batch_size
-                stop = (i+1)*mini_batch_size
-
-                dones = self.dones.squeeze(-1)
-                last_was_done = torch.zeros_like(dones, dtype=torch.bool)
-                last_was_done[1:] = dones[:-1]
-                last_was_done[0] = True
-                trajectories_batch_size = torch.sum(last_was_done[:, start:stop])
-                last_traj = first_traj + trajectories_batch_size
-                
-                masks_batch = trajectory_masks[:, first_traj:last_traj]
-                obs_batch = padded_obs_trajectories[:, first_traj:last_traj]
-                critic_obs_batch = padded_critic_obs_trajectories[:, first_traj:last_traj]
-
-                actions_batch = self.actions[:, start:stop]
-                old_mu_batch = self.mu[:, start:stop]
-                old_sigma_batch = self.sigma[:, start:stop]
-                returns_batch = self.returns[:, start:stop]
-                advantages_batch = self.advantages[:, start:stop]
-                values_batch = self.values[:, start:stop]
-                old_actions_log_prob_batch = self.actions_log_prob[:, start:stop]
-
-                # reshape to [num_envs, time, num layers, hidden dim] (original shape: [time, num_layers, num_envs, hidden_dim])
-                # then take only time steps after dones (flattens num envs and time dimensions),
-                # take a batch of trajectories and finally reshape back to [num_layers, batch, hidden_dim]
-                last_was_done = last_was_done.permute(1, 0)
-                hid_a_batch = [ saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj].transpose(1, 0).contiguous()
-                                for saved_hidden_states in self.saved_hidden_states_a ] 
-                hid_c_batch = [ saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj].transpose(1, 0).contiguous()
-                                for saved_hidden_states in self.saved_hidden_states_c ]
-                # remove the tuple for GRU
-                hid_a_batch = hid_a_batch[0] if len(hid_a_batch)==1 else hid_a_batch
-                hid_c_batch = hid_c_batch[0] if len(hid_c_batch)==1 else hid_a_batch
-
-                yield obs_batch, critic_obs_batch, actions_batch, values_batch, advantages_batch, returns_batch, \
-                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (hid_a_batch, hid_c_batch), masks_batch
-                
-                first_traj = last_traj
