@@ -39,8 +39,8 @@ rl_Inference::rl_Inference(const std::filesystem::path& modelPath, int numThread
     checkTensor(_inputTensor, "input");
     checkTensor(_outputTensor, "output");
 
-    if(_inputTensor->elementSize() != NUM_OBSERVATIONS){
-        throw std::runtime_error("MNN input dimension must be 45");
+    if(_inputTensor->elementSize() != NUM_POLICY_INPUTS){
+        throw std::runtime_error("MNN input dimension must be 225");
     }
     if(_outputTensor->elementSize() != NUM_ACTIONS){
         throw std::runtime_error("MNN output dimension must be 12");
@@ -57,9 +57,9 @@ rl_Inference::~rl_Inference(){
     }
 }
 
-void rl_Inference::advanceNNsync(const float observation[NUM_OBSERVATIONS],
+void rl_Inference::advanceNNsync(const float history[NUM_POLICY_INPUTS],
                                  float actionCmd[NUM_ACTIONS]){
-    std::copy_n(observation, NUM_OBSERVATIONS, _inputTensor->host<float>());
+    std::copy_n(history, NUM_POLICY_INPUTS, _inputTensor->host<float>());
 
     MNN::ErrorCode errorCode = _net->runSession(_session);
     if(errorCode != MNN::NO_ERROR){

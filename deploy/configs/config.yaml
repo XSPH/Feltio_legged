@@ -3,7 +3,7 @@
 
 model:
   path: ../models/policy.mnn
-  input_size: 45
+  input_size: 225
   output_size: 12
   num_threads: 2
 

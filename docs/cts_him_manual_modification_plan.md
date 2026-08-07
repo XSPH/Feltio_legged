@@ -351,17 +351,21 @@ alignment 叠加在 cosine alignment 上后再声称两者是公平对比。
 阶段二只新增 rsl_rl/rsl_rl/modules/him_estimator.py，用于 HIM source、target、prototype
 和 Sinkhorn；ActorCritic、PPO、RolloutStorage、OnPolicyRunner 继续沿用现有名称。
 
-训练稳定以后再修改：
+阶段一训练接口落地后，已经同步修改：
 
 | 文件 | 修改内容 |
 | --- | --- |
 | legged_gym/utils/exporter.py | 导出 student encoder + Actor 的组合模型 |
+| legged_gym/utils/helpers.py | JIT 导出使用同一组合模型 |
 | legged_gym/scripts/play.py | 建立并维护历史缓冲 |
 | deploy/include/control/rl_Inference.h | 输入从 45 改为 225 |
 | deploy/src/control/rl_Inference.cpp | 检查并拷贝 225 维输入 |
 | deploy/include/FSM/State_Rl.h | 增加当前观测和历史缓冲 |
 | deploy/src/FSM/State_Rl.cpp | 每个控制周期更新历史 |
+| deploy/include/config/DeployConfig.h | 默认模型输入改为 225 |
+| deploy/src/config/DeployConfig.cpp | 部署配置校验改为 225 输入、12 输出 |
 | deploy/configs/config.yaml | model.input_size 改为 225 |
+| deploy/tools/convert_onnx_to_mnn.sh | 转换当前实验导出的组合模型 |
 
 ## 6. 分阶段修改路线
 
@@ -902,7 +906,11 @@ flattened_history -> him_source_encoder -> velocity, z_him
 last_obs + velocity + z_him -> actor -> actions
 ~~~
 
-建议导出一个无状态组合模块：
+阶段一已经导出一个无状态组合模块。当前使用临时 student encoder；阶段二替换为 HIM source
+encoder 时保持相同的 225 维输入和 12 维输出接口：
+
+阶段一组合模型将 student encoder 输出的前 3 维作为预测速度，并对后 16 维执行 L2
+归一化，再与最后一帧 45 维观测拼接后送入共享 Actor。
 
 ~~~python
 class CTSHIMDeploymentPolicy(nn.Module):
@@ -926,7 +934,8 @@ input:  [batch, 225]
 output: [batch, 12]
 ~~~
 
-不能继续使用当前 exporter.py 中“只导出 actor”的路径。只导出 Actor 会得到 64 维输入模型，但部署端无法自行生成 19 维 HIM context。
+当前 exporter.py 已替换原先“只导出 actor”的路径。只导出 Actor 会得到 64 维输入模型，
+部署端无法自行生成 19 维 context。
 
 ### 8.2 Python play
 
@@ -946,7 +955,7 @@ history shape = [num_envs, 5, 45]
 
 ### 8.3 C++ MNN
 
-当前 C++ 只接受 45 维输入，需要同步修改：
+阶段一的 C++ 部署已经按以下接口同步：
 
 - 当前一步观测仍保持 45 维；
 - 新增 225 维 history 数组；

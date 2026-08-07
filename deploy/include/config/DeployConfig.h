@@ -10,7 +10,7 @@ struct DeployConfig {
     std::filesystem::path model_path;
     std::filesystem::path scene_path;
 
-    int model_input_size = 45;
+    int model_input_size = 225;
     int model_output_size = 12;
     int model_num_threads = 2;
 

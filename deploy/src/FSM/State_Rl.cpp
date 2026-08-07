@@ -13,6 +13,9 @@ State_Rl::State_Rl(CtrlComponents *ctrlComp)
     for(int i = 0; i < NUM_OBSERVATIONS; i++){
         obs[i] = 0;
     }
+    for(int i = 0; i < NUM_POLICY_INPUTS; i++){
+        obsHistory[i] = 0;
+    }
     for(int i = 0; i < NUM_ACTIONS; i++){
         actionCmd[i] = 0;
         lastAction[i] = 0;
@@ -21,6 +24,9 @@ State_Rl::State_Rl(CtrlComponents *ctrlComp)
 
 void State_Rl::enter(){
     _lowCmd->setGain(_config->stiffness, _config->damping);
+    for(int i = 0; i < NUM_POLICY_INPUTS; i++){
+        obsHistory[i] = 0;
+    }
     for(int i = 0; i < NUM_ACTIONS; i++){
         actionCmd[i] = 0;
         lastAction[i] = 0;
@@ -88,11 +94,17 @@ void State_Rl::getObservation(){
         obs[i] = std::clamp(obs[i], -_config->clip_observations,
                             _config->clip_observations);
     }
+
+    for(int i = 0; i < NUM_POLICY_INPUTS - NUM_OBSERVATIONS; i++){
+        obsHistory[i] = obsHistory[i + NUM_OBSERVATIONS];
+    }
+    std::copy_n(obs, NUM_OBSERVATIONS,
+                obsHistory + NUM_POLICY_INPUTS - NUM_OBSERVATIONS);
 }
 
 void State_Rl::mnnInference(){
-    // One feed-forward actor: 45 observations -> 12 actions.
-    rlptr->advanceNNsync(obs, actionCmd);
+    // History-based student policy: 5 x 45 observations -> 12 actions.
+    rlptr->advanceNNsync(obsHistory, actionCmd);
 
     for(int i = 0; i < NUM_ACTIONS; i++){
         if(!std::isfinite(actionCmd[i])){

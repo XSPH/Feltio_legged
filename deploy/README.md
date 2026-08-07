@@ -2,7 +2,8 @@
 
 This directory contains only the MuJoCo simulation path and the three-state
 controller (`passive -> fixed stand -> RL`). The RL state supports one
-feed-forward actor with 45 observations and 12 actions.
+history-based student policy with 225 inputs and 12 actions. Each input contains
+five 45-dimensional observations ordered from oldest to newest.
 
 ## Model
 
@@ -13,9 +14,19 @@ MNN_CONVERTER=/path/to/MNNConvert \
   ./tools/convert_onnx_to_mnn.sh /path/to/policy.onnx models/policy.mnn
 ```
 
+With no arguments, the script reads the policy exported under
+`logs/rough_go2_tshim` and writes `deploy/models/policy.mnn`.
+Convert a new model before running `dogsim`; an earlier 45-input
+`policy.mnn` is rejected by the deployment shape check.
+
 Set `model.path` in `configs/config.yaml` when selecting another policy.
 `dogsim` always reads `deploy/configs/config.yaml`; no config command-line
 argument is needed.
+
+The exported model contains the student encoder and shared actor. The C++
+controller keeps the five-frame history outside the model, clears it when
+entering the RL state, and appends the current observation before each
+inference step.
 
 ## Build and run
 

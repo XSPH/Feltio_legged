@@ -183,9 +183,11 @@ def export_policy_as_jit(actor_critic, path):
         exporter = PolicyExporterLSTM(actor_critic)
         exporter.export(path)
     else: 
+        from .exporter import StudentPolicy
+
         os.makedirs(path, exist_ok=True)
         path = os.path.join(path, 'policy_1.pt')
-        model = copy.deepcopy(actor_critic.actor).to('cpu')
+        model = StudentPolicy(actor_critic).to('cpu').eval()
         traced_script_module = torch.jit.script(model)
         traced_script_module.save(path)
 

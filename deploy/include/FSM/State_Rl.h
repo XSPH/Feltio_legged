@@ -21,9 +21,9 @@ private:
 
     std::shared_ptr<rl_Inference> rlptr;
     float obs[NUM_OBSERVATIONS];
+    float obsHistory[NUM_POLICY_INPUTS];
     float actionCmd[NUM_ACTIONS];
     float lastAction[NUM_ACTIONS];
 };
 
 #endif
-

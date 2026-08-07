@@ -145,7 +145,7 @@ class LeggedRobotCfg(BaseConfig):
             action_smoothness = -0.01
             stand_still = -0.
             feet_regulation = -0.05
-            hip_default = -0.05
+            hip_default = -0.5
 
 
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -242,10 +242,10 @@ class LeggedRobotCfgPPO(BaseConfig):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24 # per iteration
-        max_iterations = 5000 # number of policy updates
+        max_iterations = 20000 # number of policy updates
 
         # logging
-        save_interval = 500 # check for potential saves every this many iterations
+        save_interval = 1000 # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
         # load and resume
