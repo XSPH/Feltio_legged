@@ -20,6 +20,7 @@ struct DeployConfig {
     double initial_base_height = 0.35;
 
     float action_scale = 0.25F;
+    float hip_reduction = 1.0F;
     float stiffness = 20.0F;
     float damping = 0.5F;
     float stand_duration = 2.0F;

@@ -80,6 +80,7 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
 
     const auto controller = required<YAML::Node>(root, "controller");
     cfg.action_scale = required<float>(controller, "action_scale");
+    cfg.hip_reduction = required<float>(controller, "hip_reduction");
     cfg.stiffness = required<float>(controller, "stiffness");
     cfg.damping = required<float>(controller, "damping");
     cfg.stand_duration = required<float>(controller, "stand_duration");
@@ -114,6 +115,7 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
     }
     requirePositive(cfg.simulation_timestep, "simulation.timestep");
     requirePositive(cfg.render_hz, "simulation.render_hz");
+    requirePositive(cfg.hip_reduction, "controller.hip_reduction");
     requirePositive(cfg.stand_duration, "controller.stand_duration");
     requirePositive(cfg.clip_observations, "controller.clip_observations");
     requirePositive(cfg.clip_actions, "controller.clip_actions");

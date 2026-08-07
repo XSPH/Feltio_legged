@@ -409,6 +409,7 @@ class LeggedRobot(BaseTask):
         """
         #pd controller
         actions_scaled = actions * self.cfg.control.action_scale
+        actions_scaled[:, [0, 3, 6, 9]] *=self.cfg.control.hip_reduction
         control_type = self.cfg.control.control_type
         p_gains = self.p_gains * self.p_gains_multiplier
         d_gains = self.d_gains * self.d_gains_multiplier

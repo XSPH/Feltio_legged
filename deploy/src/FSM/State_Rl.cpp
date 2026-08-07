@@ -100,8 +100,10 @@ void State_Rl::mnnInference(){
         }
         actionCmd[i] = std::clamp(actionCmd[i], -_config->clip_actions,
                                   _config->clip_actions);
+        const float jointActionScale =
+            _config->action_scale * (i % 3 == 0 ? _config->hip_reduction : 1.0F);
         _lowCmd->motorCmd[i].q = _config->default_joint_angles[i]
-                               + actionCmd[i] * _config->action_scale;
+                               + actionCmd[i] * jointActionScale;
         _lowCmd->motorCmd[i].dq = 0;
         _lowCmd->motorCmd[i].tau = 0;
         lastAction[i] = actionCmd[i];
