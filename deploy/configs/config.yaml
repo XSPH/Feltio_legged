@@ -8,7 +8,7 @@ model:
   num_threads: 2
 
 simulation:
-  scene: ../models/go2/cross_stairs.xml
+  scene: ../models/go2/stairs.xml
   timestep: 0.005
   decimation: 4
   render_hz: 60.0
