@@ -215,9 +215,14 @@ class LeggedRobotCfgPPO(BaseConfig):
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         teacher_encoder_hidden_dims = [512, 256]
-        student_encoder_hidden_dims = [512, 256]
+        him_encoder_hidden_dims = [512, 256, 128]
+        him_target_hidden_dims = [128, 64]
         activation = 'elu' # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
         latent_dim = 16
+        num_prototypes = 16
+        him_temperature = 3.0
+        sinkhorn_epsilon = 0.05
+        sinkhorn_iterations = 3
 
         
     class algorithm:
@@ -237,6 +242,8 @@ class LeggedRobotCfgPPO(BaseConfig):
         max_grad_norm = 1.
         teacher_env_ratio = 0.75
         student_ppo_coef = 1.0
+        velocity_loss_coef = 1.0
+        him_loss_coef = 1.0
 
     class runner:
         policy_class_name = 'ActorCritic'

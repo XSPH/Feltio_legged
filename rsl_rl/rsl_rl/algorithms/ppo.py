@@ -57,6 +57,8 @@ class PPO:
                  desired_kl=0.01,
                  teacher_env_ratio=0.75,
                  student_ppo_coef=1.0,
+                 velocity_loss_coef=1.0,
+                 him_loss_coef=1.0,
                  device='cpu',
                  ):
 
@@ -67,6 +69,8 @@ class PPO:
         self.learning_rate = learning_rate
         self.history_length = history_length
         self.student_ppo_coef = student_ppo_coef
+        self.velocity_loss_coef = velocity_loss_coef
+        self.him_loss_coef = him_loss_coef
 
         # PPO components
         self.actor_critic = actor_critic
@@ -79,7 +83,10 @@ class PPO:
             {"params": self.actor_critic.std}
         ]
         self.optimizer1 = optim.Adam(params1, lr=learning_rate)
-        self.optimizer2 = optim.Adam(self.actor_critic.student_encoder.parameters(), lr=student_encoder_learning_rate)
+        self.optimizer2 = optim.Adam(
+            self.actor_critic.estimator.parameters(),
+            lr=student_encoder_learning_rate,
+        )
         self.transition = RolloutStorage.Transition()
 
         # PPO parameters
@@ -141,14 +148,35 @@ class PPO:
         self.transition.history = torch.cat([history[ti], history[si]], dim=0)
         self.transition.observations = torch.cat([obs[ti], obs[si]], dim=0)
         self.transition.critic_observations = torch.cat([privileged_obs[ti], privileged_obs[si]], dim=0)
+        velocity_start = self.actor_critic.num_actor_obs
+        velocity_end = velocity_start + 3
+        self.transition.velocity_target = self.transition.critic_observations[
+            :, velocity_start:velocity_end
+        ]
         real_actions = torch.zeros_like(self.transition.actions)
         real_actions[ti] = self.transition.actions[:self.teacher_num_envs]
         real_actions[si] = self.transition.actions[self.teacher_num_envs:]
         return real_actions
     
-    def process_env_step(self, rewards, dones, infos):
+    def process_env_step(self, rewards, dones, infos, next_privileged_obs):
         ti, si = self.teacher_env_idxs, self.student_env_idxs
         rewards = rewards.clone()
+        obs_dim = self.actor_critic.num_actor_obs
+        next_response = torch.cat(
+            [
+                next_privileged_obs[:, 0:6],
+                next_privileged_obs[:, 9:obs_dim],
+                next_privileged_obs[:, obs_dim:obs_dim + 3],
+            ],
+            dim=-1,
+        )
+        self.transition.next_response = torch.cat(
+            [next_response[ti], next_response[si]], dim=0
+        )
+        valid_him_target = ~dones.bool()
+        self.transition.valid_him_target = torch.cat(
+            [valid_him_target[ti], valid_him_target[si]], dim=0
+        )
         self.transition.rewards = torch.cat([rewards[ti], rewards[si]], dim=0)
         self.transition.dones = torch.cat([dones[ti], dones[si]], dim=0)
         # Bootstrapping on time outs
@@ -175,7 +203,19 @@ class PPO:
         mean_teacher_surrogate_loss = 0
         mean_student_surrogate_loss = 0
         mean_entropy_loss = 0
-        mean_student_context_loss = 0
+        mean_velocity_loss = 0
+        mean_swav_loss = 0
+        representation_metrics = {
+            "prototype_perplexity": 0.0,
+            "prototype_assignment_entropy": 0.0,
+            "prototype_usage_min": 0.0,
+            "prototype_usage_max": 0.0,
+            "velocity_error_x": 0.0,
+            "velocity_error_y": 0.0,
+            "velocity_error_z": 0.0,
+            "latent_norm": 0.0,
+            "valid_swav_samples": 0.0,
+        }
         assert not self.actor_critic.is_recurrent
         data = list(self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs))
         teacher_samples = self.teacher_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
@@ -183,9 +223,10 @@ class PPO:
         for sample in data:
             (
                 obs_batch, privileged_obs_batch, actions_batch, history_batch,
-                target_values_batch, advantages_batch, returns_batch,
-                old_actions_log_prob_batch, old_mu_batch, old_sigma_batch,
-                hid_states_batch, masks_batch
+                next_response_batch, velocity_target_batch,
+                valid_him_target_batch, target_values_batch,
+                advantages_batch, returns_batch, old_actions_log_prob_batch,
+                old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch
             ) = sample
             def get_results(start, end, is_teacher):
                 self.actor_critic.act(obs_batch[start:end], privileged_obs_batch[start:end], history_batch[start:end], is_teacher)
@@ -259,22 +300,35 @@ class PPO:
         for sample in data:
             (
                 obs_batch, privileged_obs_batch, actions_batch, history_batch,
-                target_values_batch, advantages_batch, returns_batch,
-                old_actions_log_prob_batch, old_mu_batch, old_sigma_batch,
-                hid_states_batch, masks_batch
+                next_response_batch, velocity_target_batch,
+                valid_him_target_batch, target_values_batch,
+                advantages_batch, returns_batch, old_actions_log_prob_batch,
+                old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch
             ) = sample
-            # Temporary student encoder update
-            student_context = self.actor_critic.encode_student(history_batch[teacher_samples:])
-            with torch.no_grad():
-                teacher_context = self.actor_critic.encode_teacher(privileged_obs_batch[teacher_samples:])
-            student_context_loss = (teacher_context - student_context).pow(2).mean()
+            velocity_loss, swav_loss, metrics = (
+                self.actor_critic.estimator.compute_losses(
+                    history_batch,
+                    velocity_target_batch,
+                    next_response_batch,
+                    valid_him_target_batch,
+                )
+            )
+            representation_loss = (
+                self.velocity_loss_coef * velocity_loss
+                + self.him_loss_coef * swav_loss
+            )
 
             self.optimizer2.zero_grad()
-            student_context_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor_critic.student_encoder.parameters(), self.max_grad_norm)
+            representation_loss.backward()
+            nn.utils.clip_grad_norm_(
+                self.actor_critic.estimator.parameters(), self.max_grad_norm
+            )
             self.optimizer2.step()
 
-            mean_student_context_loss += student_context_loss.item()
+            mean_velocity_loss += velocity_loss.item()
+            mean_swav_loss += swav_loss.item()
+            for key, value in metrics.items():
+                representation_metrics[key] += value.item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -282,7 +336,10 @@ class PPO:
         mean_teacher_surrogate_loss /= num_updates
         mean_student_surrogate_loss /= num_updates
         mean_entropy_loss /= num_updates
-        mean_student_context_loss /= num_updates
+        mean_velocity_loss /= num_updates
+        mean_swav_loss /= num_updates
+        for key in representation_metrics:
+            representation_metrics[key] /= num_updates
         self.storage.clear()
 
         return (
@@ -291,5 +348,7 @@ class PPO:
             mean_teacher_surrogate_loss,
             mean_student_surrogate_loss,
             mean_entropy_loss,
-            mean_student_context_loss,
+            mean_velocity_loss,
+            mean_swav_loss,
+            representation_metrics,
         )

@@ -147,9 +147,11 @@ class OnPolicyRunner:
                     actions = self.alg.act(obs, privileged_obs, self.history.flatten(1))
                     obs, privileged_obs, rewards, dones, infos = self.env.step(actions)
                     obs, privileged_obs, rewards, dones = obs.to(self.device), privileged_obs.to(self.device), rewards.to(self.device), dones.to(self.device)
+                    self.alg.process_env_step(
+                        rewards, dones, infos, privileged_obs
+                    )
                     self.history[dones > 0] = 0.0
                     self.history = torch.cat([self.history[:, 1:], obs.unsqueeze(1)], dim=1)
-                    self.alg.process_env_step(rewards, dones, infos)
                     
                     if self.log_dir is not None:
                         # Book keeping
@@ -178,7 +180,8 @@ class OnPolicyRunner:
             
             mean_value_loss, mean_surrogate_loss, mean_teacher_surrogate_loss, \
                 mean_student_surrogate_loss, mean_entropy_loss, \
-                mean_student_context_loss = self.alg.update()
+                mean_velocity_loss, mean_swav_loss, \
+                representation_metrics = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
@@ -217,7 +220,54 @@ class OnPolicyRunner:
         self.writer.add_scalar('Loss/surrogate_teacher', locs['mean_teacher_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/surrogate_student', locs['mean_student_surrogate_loss'], locs['it'])
         self.writer.add_scalar('Loss/entropy', locs['mean_entropy_loss'], locs['it'])
-        self.writer.add_scalar('Loss/student_context', locs['mean_student_context_loss'], locs['it'])
+        self.writer.add_scalar('Policy/entropy', locs['mean_entropy_loss'], locs['it'])
+        self.writer.add_scalar('Loss/velocity_estimation', locs['mean_velocity_loss'], locs['it'])
+        self.writer.add_scalar('Loss/swav', locs['mean_swav_loss'], locs['it'])
+        self.writer.add_scalar(
+            'Representation/prototype_perplexity',
+            locs['representation_metrics']['prototype_perplexity'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/prototype_assignment_entropy',
+            locs['representation_metrics']['prototype_assignment_entropy'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/prototype_usage_min',
+            locs['representation_metrics']['prototype_usage_min'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/prototype_usage_max',
+            locs['representation_metrics']['prototype_usage_max'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/predicted_velocity_error_x',
+            locs['representation_metrics']['velocity_error_x'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/predicted_velocity_error_y',
+            locs['representation_metrics']['velocity_error_y'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/predicted_velocity_error_z',
+            locs['representation_metrics']['velocity_error_z'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/latent_norm',
+            locs['representation_metrics']['latent_norm'],
+            locs['it'],
+        )
+        self.writer.add_scalar(
+            'Representation/valid_swav_samples',
+            locs['representation_metrics']['valid_swav_samples'],
+            locs['it'],
+        )
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
@@ -250,7 +300,10 @@ class OnPolicyRunner:
                       f"""{'Teacher surrogate loss:':>{pad}} {locs['mean_teacher_surrogate_loss']:.4f}\n"""
                       f"""{'Student surrogate loss:':>{pad}} {locs['mean_student_surrogate_loss']:.4f}\n"""
                       f"""{'Entropy loss:':>{pad}} {locs['mean_entropy_loss']:.4f}\n"""
-                      f"""{'Student context loss:':>{pad}} {locs['mean_student_context_loss']:.4f}\n"""
+                      f"""{'Velocity estimation loss:':>{pad}} {locs['mean_velocity_loss']:.4f}\n"""
+                      f"""{'SwAV loss:':>{pad}} {locs['mean_swav_loss']:.4f}\n"""
+                      f"""{'Prototype perplexity:':>{pad}} {locs['representation_metrics']['prototype_perplexity']:.4f}\n"""
+                      f"""{'Prototype usage min/max:':>{pad}} {locs['representation_metrics']['prototype_usage_min']:.4f}/{locs['representation_metrics']['prototype_usage_max']:.4f}\n"""
                       f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
         if len(locs['teacher_rewbuffer']):
             log_string += (f"""{'Mean teacher reward:':>{pad}} {statistics.mean(locs['teacher_rewbuffer']):.2f}\n"""

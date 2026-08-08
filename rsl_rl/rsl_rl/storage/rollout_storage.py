@@ -47,6 +47,9 @@ class RolloutStorage:
             self.action_sigma = None
             self.hidden_states = None
             self.history = None
+            self.next_response = None
+            self.velocity_target = None
+            self.valid_him_target = None
 
         
         def clear(self):
@@ -73,6 +76,9 @@ class RolloutStorage:
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
         self.history = torch.zeros(num_transitions_per_env, num_envs, self.history_length * obs_shape[0], device=self.device)
+        self.next_response = torch.zeros(num_transitions_per_env, num_envs, obs_shape[0], device=self.device)
+        self.velocity_target = torch.zeros(num_transitions_per_env, num_envs, 3, device=self.device)
+        self.valid_him_target = torch.zeros(num_transitions_per_env, num_envs, 1, dtype=torch.bool, device=self.device)
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -98,6 +104,9 @@ class RolloutStorage:
         if self.privileged_observations is not None: self.privileged_observations[self.step].copy_(transition.critic_observations)
         self.actions[self.step].copy_(transition.actions)
         self.history[self.step].copy_(transition.history)
+        self.next_response[self.step].copy_(transition.next_response)
+        self.velocity_target[self.step].copy_(transition.velocity_target)
+        self.valid_him_target[self.step].copy_(transition.valid_him_target.view(-1, 1))
         self.rewards[self.step].copy_(transition.rewards.view(-1, 1))
         self.dones[self.step].copy_(transition.dones.view(-1, 1))
         self.values[self.step].copy_(transition.values)
@@ -173,6 +182,9 @@ class RolloutStorage:
         old_sigma = self.sigma.permute(1, 0, *action_dims).flatten(0, 1)
         hist_dims = list(range(2, self.history.dim()))
         history = self.history.permute(1, 0, *hist_dims).flatten(0, 1)
+        next_response = self.next_response.permute(1, 0, 2).flatten(0, 1)
+        velocity_target = self.velocity_target.permute(1, 0, 2).flatten(0, 1)
+        valid_him_target = self.valid_him_target.permute(1, 0, 2).flatten(0, 1)
         values = self.values.permute(1, 0, 2).flatten(0, 1)
         returns = self.returns.permute(1, 0, 2).flatten(0, 1)
         old_actions_log_prob = self.actions_log_prob.permute(1, 0, 2).flatten(0, 1)
@@ -199,5 +211,9 @@ class RolloutStorage:
                 old_mu_batch = get_teacher_student_samples(old_mu, slice)
                 old_sigma_batch = get_teacher_student_samples(old_sigma, slice)
                 history_batch = get_teacher_student_samples(history, slice)
-                yield obs_batch, critic_observations_batch, actions_batch, history_batch, target_values_batch, advantages_batch, returns_batch, \
-                       old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (None, None), None
+                next_response_batch = get_teacher_student_samples(next_response, slice)
+                velocity_target_batch = get_teacher_student_samples(velocity_target, slice)
+                valid_him_target_batch = get_teacher_student_samples(valid_him_target, slice)
+                yield obs_batch, critic_observations_batch, actions_batch, history_batch, next_response_batch, velocity_target_batch, \
+                       valid_him_target_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, \
+                       old_mu_batch, old_sigma_batch, (None, None), None

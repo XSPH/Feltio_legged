@@ -11,7 +11,7 @@ class StudentPolicy(torch.nn.Module):
 
     def __init__(self, policy):
         super().__init__()
-        self.student_encoder = copy.deepcopy(policy.student_encoder)
+        self.student_encoder = copy.deepcopy(policy.estimator.source_encoder)
         self.actor = copy.deepcopy(policy.actor)
         self.num_actor_obs = policy.num_actor_obs
 

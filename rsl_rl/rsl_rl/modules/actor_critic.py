@@ -35,6 +35,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 
+from .estimator import Estimator
+
 class ActorCritic(nn.Module):
     is_recurrent = False
     def __init__(self,  num_actor_obs,
@@ -44,15 +46,21 @@ class ActorCritic(nn.Module):
                         actor_hidden_dims=[512, 256, 128],
                         critic_hidden_dims=[512, 256, 128],
                         teacher_encoder_hidden_dims=[512, 256],
-                        student_encoder_hidden_dims=[512, 256],
+                        him_encoder_hidden_dims=[512, 256, 128],
+                        him_target_hidden_dims=[128, 64],
                         activation='elu',
                         init_noise_std=1.0,
                         latent_dim=16,
+                        num_prototypes=16,
+                        him_temperature=3.0,
+                        sinkhorn_epsilon=0.05,
+                        sinkhorn_iterations=3,
                         **kwargs):
         if kwargs:
             print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs.keys()]))
         super(ActorCritic, self).__init__()
 
+        activation_name = activation
         activation = get_activation(activation)
 
         self.num_actor_obs = num_actor_obs
@@ -61,7 +69,6 @@ class ActorCritic(nn.Module):
         self.context_dim = 3 + latent_dim
 
         mlp_input_dim_t = num_critic_obs
-        mlp_input_dim_s = num_actor_obs * history_length
         mlp_input_dim_a = num_actor_obs + self.context_dim
         mlp_input_dim_c = num_critic_obs + self.context_dim
 
@@ -79,20 +86,20 @@ class ActorCritic(nn.Module):
                 encoder_layers.append(activation)
         self.teacher_encoder = nn.Sequential(*encoder_layers)
 
-        # Student encoder
-        encoder_layers = []
-        encoder_layers.append(nn.Linear(mlp_input_dim_s, student_encoder_hidden_dims[0]))
-        encoder_layers.append(activation)
-        for l in range(len(student_encoder_hidden_dims)):
-            if l == len(student_encoder_hidden_dims) - 1:
-                encoder_layers.append(
-                    nn.Linear(student_encoder_hidden_dims[l], self.context_dim)
-                )
-
-            else:
-                encoder_layers.append(nn.Linear(student_encoder_hidden_dims[l], student_encoder_hidden_dims[l + 1]))
-                encoder_layers.append(activation)
-        self.student_encoder = nn.Sequential(*encoder_layers)
+        # HIM student estimator
+        self.estimator = Estimator(
+            temporal_steps=history_length,
+            num_one_step_obs=num_actor_obs,
+            response_dim=num_actor_obs,
+            latent_dim=latent_dim,
+            enc_hidden_dims=him_encoder_hidden_dims,
+            tar_hidden_dims=him_target_hidden_dims,
+            activation=activation_name,
+            num_prototypes=num_prototypes,
+            temperature=him_temperature,
+            sinkhorn_epsilon=sinkhorn_epsilon,
+            sinkhorn_iterations=sinkhorn_iterations,
+        )
 
         # Policy
         actor_layers = []
@@ -121,7 +128,7 @@ class ActorCritic(nn.Module):
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")
         print(f"Teacher Encoder MLP: {self.teacher_encoder}")
-        print(f"Student Encoder MLP: {self.student_encoder}")
+        print(f"HIM Estimator: {self.estimator}")
 
         # Action noise
         self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
@@ -171,23 +178,15 @@ class ActorCritic(nn.Module):
         return torch.cat([velocity, latent], dim=-1)
 
     def encode_student(self, history):
-        flattened_history = history.flatten(start_dim=1)
-        expected_history_dim = self.history_length * self.num_actor_obs
-        if flattened_history.shape[-1] != expected_history_dim:
-            raise ValueError(
-                f"Expected flattened history dimension {expected_history_dim}, "
-                f"got {flattened_history.shape[-1]}"
-            )
-        student_output = self.student_encoder(flattened_history)
-        predicted_velocity = student_output[:, :3]
-        latent = F.normalize(student_output[:, 3:], p=2.0, dim=-1)
+        predicted_velocity, latent = self.estimator.encode_history(history)
         return torch.cat([predicted_velocity, latent], dim=-1)
 
     def update_distribution(self, observations, is_teacher, privileged_obs, history):
         if is_teacher:
             context = self.encode_teacher(privileged_obs)
         else:
-            context = self.encode_student(history).detach()
+            with torch.no_grad():
+                context = self.encode_student(history)
         actor_input = torch.cat([observations, context], dim=-1)
         mean = self.actor(actor_input)
         self.distribution = Normal(mean, mean*0. + self.std)
@@ -209,7 +208,8 @@ class ActorCritic(nn.Module):
         if is_teacher:
             context = self.encode_teacher(privileged_obs)
         else:
-            context = self.encode_student(history)
+            with torch.no_grad():
+                context = self.encode_student(history)
         critic_input = torch.cat([privileged_obs, context.detach()], dim=-1)
         value = self.critic(critic_input)
         return value
