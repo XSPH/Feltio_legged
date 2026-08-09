@@ -15,14 +15,16 @@ from legged_gym.utils import task_registry
 from legged_gym.utils.helpers import get_load_path
 
 
-TERRAIN_NAMES = np.array(["Slope", "Rough slope", "Stairs", "Discrete"])
+TERRAIN_NAMES = np.array(["Slope", "Rough slope", "Stairs"])
+# TERRAIN_NAMES = np.array(["Slope", "Rough slope", "Stairs", "Discrete"])
 TERRAIN_COLORS = {
     0: "#55A868",
     1: "#DD8452",
     2: "#4C72B0",
-    3: "#C44E52",
+    # 3: "#C44E52",
 }
-PLOT_ORDER = (2, 1, 0, 3)
+# PLOT_ORDER = (2, 1, 0, 3)
+PLOT_ORDER = (2, 1, 0)
 
 
 def get_args():
@@ -31,12 +33,12 @@ def get_args():
         {"name": "--checkpoint_path", "type": str},
         {"name": "--load_run", "type": str},
         {"name": "--checkpoint", "type": int},
-        {"name": "--num_envs", "type": int, "default": 2048},
-        {"name": "--steps", "type": int, "default": 300},
-        {"name": "--warmup_steps", "type": int, "default": 250},
+        {"name": "--num_envs", "type": int, "default": 4096},
+        {"name": "--steps", "type": int, "default": 5000},
+        {"name": "--warmup_steps", "type": int, "default": 300},
         {"name": "--sample_interval", "type": int, "default": 4},
         {"name": "--samples_per_terrain", "type": int, "default": 500},
-        {"name": "--command_x", "type": float, "default": 0.5},
+        {"name": "--command_x", "type": float, "default": 0.75},
         {"name": "--perplexity", "type": float, "default": 30.0},
         {"name": "--seed", "type": int, "default": 1},
         {
@@ -88,16 +90,16 @@ def configure_environment(env_cfg, args):
 
     # Eight columns give two columns to each paper category. The two stair
     # columns contain ascending and descending stairs and share one label.
-    env_cfg.terrain.num_rows = 5
-    env_cfg.terrain.num_cols = 8
-    env_cfg.terrain.max_init_terrain_level = 4
+    env_cfg.terrain.num_rows = 10
+    env_cfg.terrain.num_cols = 20
+    env_cfg.terrain.max_init_terrain_level = 5
     env_cfg.terrain.curriculum = True
     env_cfg.terrain.terrain_proportions = [
+        0.2,
+        0.2,
+        0.35,
         0.25,
-        0.25,
-        0.125,
-        0.125,
-        0.25,
+        0.0,
     ]
 
     env_cfg.noise.add_noise = False

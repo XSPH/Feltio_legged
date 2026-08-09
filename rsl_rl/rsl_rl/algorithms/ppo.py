@@ -52,6 +52,7 @@ class PPO:
                  learning_rate=1e-3,
                  student_encoder_learning_rate=1e-3,
                  max_grad_norm=1.0,
+                 him_max_grad_norm=10.0,
                  use_clipped_value_loss=True,
                  schedule="fixed",
                  desired_kl=0.01,
@@ -98,6 +99,7 @@ class PPO:
         self.gamma = gamma
         self.lam = lam
         self.max_grad_norm = max_grad_norm
+        self.him_max_grad_norm = him_max_grad_norm
         self.use_clipped_value_loss = use_clipped_value_loss
         self.teacher_num_envs = max(int(num_envs * teacher_env_ratio), 1)
         self.student_num_envs = num_envs - self.teacher_num_envs
@@ -217,10 +219,11 @@ class PPO:
             "valid_swav_samples": 0.0,
         }
         assert not self.actor_critic.is_recurrent
-        data = list(self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs))
         teacher_samples = self.teacher_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
         student_samples = self.student_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
-        for sample in data:
+        for sample in self.storage.mini_batch_generator(
+            self.num_mini_batches, self.num_learning_epochs
+        ):
             (
                 obs_batch, privileged_obs_batch, actions_batch, history_batch,
                 next_response_batch, velocity_target_batch,
@@ -297,7 +300,9 @@ class PPO:
             mean_student_surrogate_loss += student_surrogate_loss.item()
             mean_entropy_loss += entropy_batch.mean().item()
 
-        for sample in data:
+        for sample in self.storage.mini_batch_generator(
+            self.num_mini_batches, self.num_learning_epochs
+        ):
             (
                 obs_batch, privileged_obs_batch, actions_batch, history_batch,
                 next_response_batch, velocity_target_batch,
@@ -321,7 +326,7 @@ class PPO:
             self.optimizer2.zero_grad()
             representation_loss.backward()
             nn.utils.clip_grad_norm_(
-                self.actor_critic.estimator.parameters(), self.max_grad_norm
+                self.actor_critic.estimator.parameters(), self.him_max_grad_norm
             )
             self.optimizer2.step()
 

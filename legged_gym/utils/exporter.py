@@ -1,9 +1,18 @@
 """Utilities for exporting trained policies to deployment formats."""
 
 import copy
+import os
 from pathlib import Path
 
 import torch
+
+
+def export_policy_as_jit(actor_critic, path):
+    os.makedirs(path, exist_ok=True)
+    path = os.path.join(path, 'policy_1.pt')
+    model = StudentPolicy(actor_critic).to('cpu').eval()
+    traced_script_module = torch.jit.script(model)
+    traced_script_module.save(path)
 
 
 class StudentPolicy(torch.nn.Module):
