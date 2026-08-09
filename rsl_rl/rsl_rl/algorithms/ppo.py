@@ -28,13 +28,27 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+import itertools
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-import itertools
 from rsl_rl.modules import ActorCritic
 from rsl_rl.storage import RolloutStorage
+
+
+def _grad_norm(parameters):
+    parameters = list(parameters)
+    gradient_norms = [
+        parameter.grad.detach().norm(p=2)
+        for parameter in parameters
+        if parameter.grad is not None
+    ]
+    if not gradient_norms:
+        return parameters[0].new_zeros(())
+    return torch.stack(gradient_norms).norm(p=2)
+
 
 class PPO:
     actor_critic: ActorCritic
@@ -57,6 +71,8 @@ class PPO:
                  schedule="fixed",
                  desired_kl=0.01,
                  teacher_env_ratio=0.75,
+                 him_sample_mode="all",
+                 freeze_prototype_updates=0,
                  student_ppo_coef=1.0,
                  velocity_loss_coef=1.0,
                  him_loss_coef=1.0,
@@ -72,6 +88,19 @@ class PPO:
         self.student_ppo_coef = student_ppo_coef
         self.velocity_loss_coef = velocity_loss_coef
         self.him_loss_coef = him_loss_coef
+        if him_sample_mode not in ("all", "student"):
+            raise ValueError(
+                "him_sample_mode must be either 'all' or 'student', "
+                f"got {him_sample_mode!r}"
+            )
+        self.him_sample_mode = him_sample_mode
+        if not isinstance(freeze_prototype_updates, int) or freeze_prototype_updates < 0:
+            raise ValueError(
+                "freeze_prototype_updates must be a non-negative integer, "
+                f"got {freeze_prototype_updates!r}"
+            )
+        self.freeze_prototype_updates = freeze_prototype_updates
+        self.him_update_count = 0
 
         # PPO components
         self.actor_critic = actor_critic
@@ -217,10 +246,22 @@ class PPO:
             "velocity_error_z": 0.0,
             "latent_norm": 0.0,
             "valid_swav_samples": 0.0,
+            "source_encoder_grad_norm": 0.0,
+            "target_encoder_grad_norm": 0.0,
+            "prototype_grad_norm": 0.0,
+            "him_grad_norm": 0.0,
+            "him_grad_clipped_fraction": 0.0,
+            "him_batch_samples": 0.0,
+            "prototype_frozen_fraction": 0.0,
         }
         assert not self.actor_critic.is_recurrent
         teacher_samples = self.teacher_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
         student_samples = self.student_num_envs * self.storage.num_transitions_per_env // self.num_mini_batches
+        if self.him_sample_mode == "student":
+            representation_start = teacher_samples
+        else:
+            representation_start = 0
+        representation_end = teacher_samples + student_samples
         for sample in self.storage.mini_batch_generator(
             self.num_mini_batches, self.num_learning_epochs
         ):
@@ -310,12 +351,24 @@ class PPO:
                 advantages_batch, returns_batch, old_actions_log_prob_batch,
                 old_mu_batch, old_sigma_batch, hid_states_batch, masks_batch
             ) = sample
+            representation_history = history_batch[
+                representation_start:representation_end
+            ]
+            representation_next_response = next_response_batch[
+                representation_start:representation_end
+            ]
+            representation_velocity_target = velocity_target_batch[
+                representation_start:representation_end
+            ]
+            representation_valid_him_target = valid_him_target_batch[
+                representation_start:representation_end
+            ]
             velocity_loss, swav_loss, metrics = (
                 self.actor_critic.estimator.compute_losses(
-                    history_batch,
-                    velocity_target_batch,
-                    next_response_batch,
-                    valid_him_target_batch,
+                    representation_history,
+                    representation_velocity_target,
+                    representation_next_response,
+                    representation_valid_him_target,
                 )
             )
             representation_loss = (
@@ -325,15 +378,48 @@ class PPO:
 
             self.optimizer2.zero_grad()
             representation_loss.backward()
-            nn.utils.clip_grad_norm_(
+            estimator = self.actor_critic.estimator
+            source_encoder_grad_norm = _grad_norm(
+                estimator.source_encoder.parameters()
+            )
+            target_encoder_grad_norm = _grad_norm(
+                estimator.target_encoder.parameters()
+            )
+            prototype_grad_norm = _grad_norm(estimator.prototypes.parameters())
+            prototype_frozen = (
+                self.him_update_count < self.freeze_prototype_updates
+            )
+            if prototype_frozen:
+                estimator.prototypes.weight.grad = None
+            him_grad_norm = nn.utils.clip_grad_norm_(
                 self.actor_critic.estimator.parameters(), self.him_max_grad_norm
             )
             self.optimizer2.step()
+            self.him_update_count += 1
 
             mean_velocity_loss += velocity_loss.item()
             mean_swav_loss += swav_loss.item()
             for key, value in metrics.items():
                 representation_metrics[key] += value.item()
+            representation_metrics[
+                "source_encoder_grad_norm"
+            ] += source_encoder_grad_norm.item()
+            representation_metrics[
+                "target_encoder_grad_norm"
+            ] += target_encoder_grad_norm.item()
+            representation_metrics[
+                "prototype_grad_norm"
+            ] += prototype_grad_norm.item()
+            representation_metrics["him_grad_norm"] += him_grad_norm.item()
+            representation_metrics["him_grad_clipped_fraction"] += float(
+                him_grad_norm.item() > self.him_max_grad_norm
+            )
+            representation_metrics["him_batch_samples"] += float(
+                representation_history.shape[0]
+            )
+            representation_metrics["prototype_frozen_fraction"] += float(
+                prototype_frozen
+            )
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -345,6 +431,26 @@ class PPO:
         mean_swav_loss /= num_updates
         for key in representation_metrics:
             representation_metrics[key] /= num_updates
+
+        diagnostic_metrics = self.actor_critic.estimator.compute_diagnostics(
+            history_batch,
+            next_response_batch,
+            valid_him_target_batch,
+            primary_slice=(representation_start, representation_end),
+            groups={
+                "teacher": (0, teacher_samples),
+                "student": (
+                    teacher_samples,
+                    teacher_samples + student_samples,
+                ),
+            },
+        )
+        representation_metrics.update(
+            {key: value.item() for key, value in diagnostic_metrics.items()}
+        )
+        representation_metrics["him_update_count"] = float(
+            self.him_update_count
+        )
         self.storage.clear()
 
         return (

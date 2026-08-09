@@ -242,6 +242,8 @@ class LeggedRobotCfgPPO(BaseConfig):
         max_grad_norm = 1.
         him_max_grad_norm = 10.
         teacher_env_ratio = 0.75
+        him_sample_mode = "student"
+        freeze_prototype_updates = 0
         student_ppo_coef = 1.0
         velocity_loss_coef = 1.0
         him_loss_coef = 1.0
@@ -253,7 +255,7 @@ class LeggedRobotCfgPPO(BaseConfig):
         max_iterations = 20000 # number of policy updates
 
         # logging
-        save_interval = 1000 # check for potential saves every this many iterations
+        save_interval = 500 # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
         # load and resume

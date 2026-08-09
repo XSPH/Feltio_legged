@@ -76,6 +76,47 @@ class Estimator(nn.Module):
         predicted_velocity, latent = self.encode_history(history)
         return predicted_velocity.detach(), latent.detach()
 
+    @torch.no_grad()
+    def compute_diagnostics(
+        self,
+        history,
+        next_response,
+        valid_mask,
+        groups=None,
+        primary_slice=None,
+    ):
+        _, history_latent = self.encode_history(history)
+        target_latent = self.encode_target(next_response)
+        valid_mask = valid_mask.reshape(-1).bool()
+        if primary_slice is None:
+            primary_slice = (0, history_latent.shape[0])
+        primary_start, primary_end = primary_slice
+        normalized_prototypes = F.normalize(
+            self.prototypes.weight, p=2.0, dim=-1
+        )
+
+        metrics = compute_prototype_metrics(normalized_prototypes)
+        metrics.update(
+            _compute_paired_latent_metrics(
+                history_latent[primary_start:primary_end],
+                target_latent[primary_start:primary_end],
+                normalized_prototypes,
+                valid_mask[primary_start:primary_end],
+            )
+        )
+        if groups is not None:
+            for group_name, (start, end) in groups.items():
+                metrics.update(
+                    _compute_paired_latent_metrics(
+                        history_latent[start:end],
+                        target_latent[start:end],
+                        normalized_prototypes,
+                        valid_mask[start:end],
+                        prefix=f"{group_name}_",
+                    )
+                )
+        return {key: value.detach() for key, value in metrics.items()}
+
     def compute_losses(
         self,
         history,
@@ -160,6 +201,178 @@ class Estimator(nn.Module):
             "valid_swav_samples": valid_mask.sum().detach(),
         }
         return velocity_loss, swav_loss, metrics
+
+
+@torch.no_grad()
+def compute_prototype_metrics(prototypes):
+    prototypes = F.normalize(prototypes.float(), p=2.0, dim=-1)
+    effective_rank, stable_rank = _matrix_rank_metrics(prototypes)
+    zero = prototypes.new_zeros(())
+
+    if prototypes.shape[0] > 1:
+        cosine = prototypes @ prototypes.T
+        off_diagonal_mask = ~torch.eye(
+            prototypes.shape[0], dtype=torch.bool, device=prototypes.device
+        )
+        off_diagonal_cosine = cosine[off_diagonal_mask]
+        mean_abs_cosine = off_diagonal_cosine.abs().mean()
+        same_direction_fraction = (
+            off_diagonal_cosine > 0.99
+        ).float().mean()
+        collinear_fraction = (
+            off_diagonal_cosine.abs() > 0.99
+        ).float().mean()
+    else:
+        mean_abs_cosine = zero
+        same_direction_fraction = zero
+        collinear_fraction = zero
+
+    return {
+        "prototype_effective_rank": effective_rank,
+        "prototype_stable_rank": stable_rank,
+        "prototype_mean_abs_off_diagonal_cosine": mean_abs_cosine,
+        "prototype_same_direction_fraction": same_direction_fraction,
+        "prototype_collinear_fraction": collinear_fraction,
+    }
+
+
+@torch.no_grad()
+def compute_vector_geometry_metrics(vectors, max_cosine_pairs=2048):
+    vectors = vectors.float()
+    zero = vectors.new_zeros(())
+    if vectors.shape[0] == 0:
+        return {
+            "average_norm": zero,
+            "mean_vector_norm": zero,
+            "centered_effective_rank": zero,
+            "random_pair_cosine_mean": zero,
+        }
+
+    average_norm = vectors.norm(p=2, dim=-1).mean()
+    mean_vector_norm = vectors.mean(dim=0).norm(p=2)
+    centered_effective_rank, _ = _matrix_rank_metrics(vectors, center=True)
+
+    pair_count = min(vectors.shape[0] // 2, max_cosine_pairs)
+    if pair_count > 0:
+        normalized_vectors = F.normalize(vectors, p=2.0, dim=-1)
+        generator = torch.Generator()
+        generator.manual_seed(0)
+        pair_indices = torch.randperm(
+            vectors.shape[0], generator=generator
+        )[:2 * pair_count].to(vectors.device)
+        random_pair_cosine_mean = (
+            normalized_vectors[pair_indices[:pair_count]]
+            * normalized_vectors[pair_indices[pair_count:]]
+        ).sum(dim=-1).mean()
+    else:
+        random_pair_cosine_mean = zero
+
+    return {
+        "average_norm": average_norm,
+        "mean_vector_norm": mean_vector_norm,
+        "centered_effective_rank": centered_effective_rank,
+        "random_pair_cosine_mean": random_pair_cosine_mean,
+    }
+
+
+@torch.no_grad()
+def compute_hard_assignment_metrics(scores):
+    zero = scores.new_zeros(())
+    if scores.shape[0] == 0:
+        return {
+            "hard_prototype_active_count": zero,
+            "hard_prototype_perplexity": zero,
+            "hard_prototype_usage_min": zero,
+            "hard_prototype_usage_max": zero,
+        }
+
+    hard_indices = scores.argmax(dim=-1)
+    usage = torch.bincount(
+        hard_indices, minlength=scores.shape[-1]
+    ).float()
+    active_count = (usage > 0).sum().float()
+    usage /= usage.sum()
+    entropy = -(
+        usage * usage.clamp_min(1.0e-12).log()
+    ).sum()
+
+    return {
+        "hard_prototype_active_count": active_count,
+        "hard_prototype_perplexity": entropy.exp(),
+        "hard_prototype_usage_min": usage.min(),
+        "hard_prototype_usage_max": usage.max(),
+    }
+
+
+def _matrix_rank_metrics(matrix, center=False):
+    matrix = matrix.float()
+    zero = matrix.new_zeros(())
+    if matrix.shape[0] == 0 or matrix.shape[1] == 0:
+        return zero, zero
+    if center:
+        matrix = matrix - matrix.mean(dim=0, keepdim=True)
+
+    eigenvalues = torch.linalg.eigvalsh(matrix.T @ matrix).clamp_min(0.0)
+    total = eigenvalues.sum()
+    probabilities = eigenvalues / total.clamp_min(1.0e-12)
+    entropy = -(
+        probabilities * probabilities.clamp_min(1.0e-12).log()
+    ).sum()
+    has_energy = total > torch.finfo(matrix.dtype).eps
+    effective_rank = torch.where(has_energy, entropy.exp(), zero)
+    stable_rank = torch.where(
+        has_energy,
+        total / eigenvalues.max().clamp_min(1.0e-12),
+        zero,
+    )
+    return effective_rank, stable_rank
+
+
+def _compute_paired_latent_metrics(
+    history_latent,
+    target_latent,
+    prototypes,
+    valid_mask,
+    prefix="",
+):
+    valid_history_latent = history_latent[valid_mask]
+    valid_target_latent = target_latent[valid_mask]
+    history_metrics = compute_vector_geometry_metrics(valid_history_latent)
+    target_metrics = compute_vector_geometry_metrics(valid_target_latent)
+    hard_metrics = compute_hard_assignment_metrics(
+        valid_target_latent @ prototypes.T
+    )
+    zero = history_latent.new_zeros(())
+    if valid_history_latent.shape[0] > 0:
+        positive_cosine = F.cosine_similarity(
+            valid_history_latent, valid_target_latent, dim=-1
+        ).mean()
+    else:
+        positive_cosine = zero
+
+    metrics = {
+        f"{prefix}source_latent_average_norm": history_metrics["average_norm"],
+        f"{prefix}source_latent_mean_norm": history_metrics["mean_vector_norm"],
+        f"{prefix}source_latent_centered_effective_rank": history_metrics[
+            "centered_effective_rank"
+        ],
+        f"{prefix}source_latent_random_pair_cosine_mean": history_metrics[
+            "random_pair_cosine_mean"
+        ],
+        f"{prefix}target_latent_average_norm": target_metrics["average_norm"],
+        f"{prefix}target_latent_mean_norm": target_metrics["mean_vector_norm"],
+        f"{prefix}target_latent_centered_effective_rank": target_metrics[
+            "centered_effective_rank"
+        ],
+        f"{prefix}target_latent_random_pair_cosine_mean": target_metrics[
+            "random_pair_cosine_mean"
+        ],
+        f"{prefix}positive_source_target_cosine": positive_cosine,
+        f"{prefix}diagnostic_valid_samples": valid_mask.sum().float(),
+    }
+    for key, value in hard_metrics.items():
+        metrics[f"{prefix}{key}"] = value
+    return metrics
 
 
 @torch.no_grad()

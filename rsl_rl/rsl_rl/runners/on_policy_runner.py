@@ -129,6 +129,8 @@ class OnPolicyRunner:
         obs, privileged_obs = obs.to(self.device), privileged_obs.to(self.device)
         self.history = torch.cat([self.history[:, 1:], obs.unsqueeze(1)], dim=1)
         self.alg.actor_critic.train() # switch to train mode (for dropout for example)
+        if self.log_dir is not None and self.current_learning_iteration == 0:
+            self.save(os.path.join(self.log_dir, 'model_0.pt'))
 
         ep_infos = []
         teacher_rewbuffer = deque(maxlen=100)
@@ -138,8 +140,9 @@ class OnPolicyRunner:
         cur_reward_sum = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
         cur_episode_length = torch.zeros(self.env.num_envs, dtype=torch.float, device=self.device)
 
-        tot_iter = self.current_learning_iteration + num_learning_iterations
-        for it in range(self.current_learning_iteration, tot_iter):
+        first_learning_iteration = self.current_learning_iteration
+        tot_iter = first_learning_iteration + num_learning_iterations
+        for it in range(first_learning_iteration + 1, tot_iter + 1):
             start = time.time()
             # Rollout
             with torch.inference_mode():
@@ -184,14 +187,18 @@ class OnPolicyRunner:
                 representation_metrics = self.alg.update()
             stop = time.time()
             learn_time = stop - start
+            self.current_learning_iteration = it
             if self.log_dir is not None:
                 self.log(locals())
-            if it % self.save_interval == 0:
+            if self.log_dir is not None and it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
-        
-        self.current_learning_iteration += num_learning_iterations
-        self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
+
+        if self.log_dir is not None:
+            self.save(os.path.join(
+                self.log_dir,
+                'model_{}.pt'.format(self.current_learning_iteration),
+            ))
 
     def log(self, locs, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
@@ -224,22 +231,22 @@ class OnPolicyRunner:
         self.writer.add_scalar('Loss/velocity_estimation', locs['mean_velocity_loss'], locs['it'])
         self.writer.add_scalar('Loss/swav', locs['mean_swav_loss'], locs['it'])
         self.writer.add_scalar(
-            'Representation/prototype_perplexity',
+            'Representation/soft_prototype_perplexity',
             locs['representation_metrics']['prototype_perplexity'],
             locs['it'],
         )
         self.writer.add_scalar(
-            'Representation/prototype_assignment_entropy',
+            'Representation/soft_prototype_assignment_entropy',
             locs['representation_metrics']['prototype_assignment_entropy'],
             locs['it'],
         )
         self.writer.add_scalar(
-            'Representation/prototype_usage_min',
+            'Representation/soft_prototype_usage_min',
             locs['representation_metrics']['prototype_usage_min'],
             locs['it'],
         )
         self.writer.add_scalar(
-            'Representation/prototype_usage_max',
+            'Representation/soft_prototype_usage_max',
             locs['representation_metrics']['prototype_usage_max'],
             locs['it'],
         )
@@ -259,7 +266,7 @@ class OnPolicyRunner:
             locs['it'],
         )
         self.writer.add_scalar(
-            'Representation/latent_norm',
+            'Representation/source_latent_average_norm',
             locs['representation_metrics']['latent_norm'],
             locs['it'],
         )
@@ -268,6 +275,24 @@ class OnPolicyRunner:
             locs['representation_metrics']['valid_swav_samples'],
             locs['it'],
         )
+        existing_representation_metrics = {
+            'prototype_perplexity',
+            'prototype_assignment_entropy',
+            'prototype_usage_min',
+            'prototype_usage_max',
+            'velocity_error_x',
+            'velocity_error_y',
+            'velocity_error_z',
+            'latent_norm',
+            'valid_swav_samples',
+        }
+        for key, value in locs['representation_metrics'].items():
+            if key not in existing_representation_metrics:
+                self.writer.add_scalar(
+                    'Representation/' + key,
+                    value,
+                    locs['it'],
+                )
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
         self.writer.add_scalar('Policy/mean_noise_std', mean_std.item(), locs['it'])
         self.writer.add_scalar('Perf/total_fps', fps, locs['it'])
@@ -289,7 +314,7 @@ class OnPolicyRunner:
             self.writer.add_scalar('Train/mean_teacher_terrain_level', mean_teacher_terrain_level, locs['it'])
             self.writer.add_scalar('Train/mean_student_terrain_level', mean_student_terrain_level, locs['it'])
 
-        str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "
+        str = f" \033[1m Learning iteration {locs['it']}/{locs['tot_iter']} \033[0m "
 
         log_string = (f"""{'#' * width}\n"""
                       f"""{str.center(width, ' ')}\n\n"""
@@ -302,8 +327,17 @@ class OnPolicyRunner:
                       f"""{'Entropy loss:':>{pad}} {locs['mean_entropy_loss']:.4f}\n"""
                       f"""{'Velocity estimation loss:':>{pad}} {locs['mean_velocity_loss']:.4f}\n"""
                       f"""{'SwAV loss:':>{pad}} {locs['mean_swav_loss']:.4f}\n"""
-                      f"""{'Prototype perplexity:':>{pad}} {locs['representation_metrics']['prototype_perplexity']:.4f}\n"""
-                      f"""{'Prototype usage min/max:':>{pad}} {locs['representation_metrics']['prototype_usage_min']:.4f}/{locs['representation_metrics']['prototype_usage_max']:.4f}\n"""
+                      f"""{'Soft prototype perplexity:':>{pad}} {locs['representation_metrics']['prototype_perplexity']:.4f}\n"""
+                      f"""{'Soft prototype usage min/max:':>{pad}} {locs['representation_metrics']['prototype_usage_min']:.4f}/{locs['representation_metrics']['prototype_usage_max']:.4f}\n"""
+                      f"""{'Prototype effective rank:':>{pad}} {locs['representation_metrics']['prototype_effective_rank']:.4f}\n"""
+                      f"""{'Prototype collinear fraction:':>{pad}} {locs['representation_metrics']['prototype_collinear_fraction']:.4f}\n"""
+                      f"""{'Source latent effective rank:':>{pad}} {locs['representation_metrics']['source_latent_centered_effective_rank']:.4f}\n"""
+                      f"""{'Student latent effective rank:':>{pad}} {locs['representation_metrics']['student_source_latent_centered_effective_rank']:.4f}\n"""
+                      f"""{'Hard prototype perplexity:':>{pad}} {locs['representation_metrics']['hard_prototype_perplexity']:.4f}\n"""
+                      f"""{'HIM samples/update:':>{pad}} {locs['representation_metrics']['him_batch_samples']:.0f}\n"""
+                      f"""{'Prototype frozen:':>{pad}} {locs['representation_metrics']['prototype_frozen_fraction']:.2%}\n"""
+                      f"""{'HIM update count:':>{pad}} {locs['representation_metrics']['him_update_count']:.0f}\n"""
+                      f"""{'HIM grad norm/clipped:':>{pad}} {locs['representation_metrics']['him_grad_norm']:.4f}/{locs['representation_metrics']['him_grad_clipped_fraction']:.2%}\n"""
                       f"""{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n""")
         if len(locs['teacher_rewbuffer']):
             log_string += (f"""{'Mean teacher reward:':>{pad}} {statistics.mean(locs['teacher_rewbuffer']):.2f}\n"""
@@ -316,12 +350,14 @@ class OnPolicyRunner:
                            f"""{'Mean student terrain level:':>{pad}} {mean_student_terrain_level:.2f}\n""")
 
         log_string += ep_string
+        completed_iterations = locs['it'] - locs['first_learning_iteration']
+        remaining_iterations = locs['tot_iter'] - locs['it']
+        eta = self.tot_time / completed_iterations * remaining_iterations
         log_string += (f"""{'-' * width}\n"""
                        f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
                        f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
                        f"""{'Total time:':>{pad}} {self.tot_time:.2f}s\n"""
-                       f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
-                               locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
+                       f"""{'ETA:':>{pad}} {eta:.1f}s\n""")
         print(log_string)
 
     def save(self, path, infos=None):
@@ -329,6 +365,7 @@ class OnPolicyRunner:
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer1_state_dict': self.alg.optimizer1.state_dict(),
             'optimizer2_state_dict': self.alg.optimizer2.state_dict(),
+            'him_update_count': self.alg.him_update_count,
             'iter': self.current_learning_iteration,
             'infos': infos,
             }, path)
@@ -340,6 +377,12 @@ class OnPolicyRunner:
             self.alg.optimizer1.load_state_dict(loaded_dict['optimizer1_state_dict'])
             self.alg.optimizer2.load_state_dict(loaded_dict['optimizer2_state_dict'])
         self.current_learning_iteration = loaded_dict['iter']
+        self.alg.him_update_count = loaded_dict.get(
+            'him_update_count',
+            self.current_learning_iteration
+            * self.alg.num_learning_epochs
+            * self.alg.num_mini_batches,
+        )
         return loaded_dict['infos']
 
     def get_inference_policy(self, device=None):
