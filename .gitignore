@@ -19,10 +19,10 @@ dist/
 pip-wheel-metadata/
 
 # Virtual environments
-.venv/
-venv/
-env/
-ENV/
+/.venv/
+/venv/
+/env/
+/ENV/
 
 # Training, evaluation, and experiment outputs
 logs/
