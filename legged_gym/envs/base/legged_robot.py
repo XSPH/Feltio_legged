@@ -1,6 +1,7 @@
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 from time import time
 from warnings import WarningMessage
+import math
 import numpy as np
 import os
 
@@ -105,6 +106,7 @@ class LeggedRobot(BaseTask):
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         self.foot_positions = self.rigid_body_states[:, self.feet_indices, :3]
         self.foot_velocities = self.rigid_body_states[:, self.feet_indices, 7:10]
+        self._update_foot_contact_state()
 
         self._post_physics_step_callback()
 
@@ -183,6 +185,13 @@ class LeggedRobot(BaseTask):
         self.last_last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.feet_air_time[env_ids] = 0.
+        self.feet_contact_time[env_ids] = 0.
+        self.feet_air_time_on_contact[env_ids] = 0.
+        self.last_contacts[env_ids] = False
+        self.filtered_foot_contacts[env_ids] = False
+        self.first_foot_contacts[env_ids] = False
+        self.phase_foot_reference[env_ids] = 0.
+        self.phase_foot_reference_initialized[env_ids] = False
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         # fill extras
@@ -362,6 +371,23 @@ class LeggedRobot(BaseTask):
             com_offset = np.random.uniform(rng[0], rng[1], 3)
             props[0].com += gymapi.Vec3(*(float(value) for value in com_offset))
         return props
+
+    def _update_foot_contact_state(self):
+        """统一更新奖励函数使用的足端接触状态和连续计时。"""
+        # PhysX 在网格地形上的单帧接触检测可能抖动，因此将当前帧和上一帧的原始接触取或，
+        # 得到更稳定的 filtered_contacts。这里每个仿真步只更新一次，避免奖励计算顺序影响计时。
+        contacts = (self.contact_forces[:, self.feet_indices, 2] > self.cfg.rewards.foot_contact_force_threshold)
+        filtered_contacts = torch.logical_or(contacts, self.last_contacts)
+        next_air_time = self.feet_air_time + self.dt
+        self.filtered_foot_contacts[:] = filtered_contacts
+        # first_foot_contacts 只在脚结束腾空、首次重新接触地面时为 True。
+        self.first_foot_contacts[:] = torch.logical_and(self.feet_air_time > 0., filtered_contacts)
+        # 先保存本次触地前的完整腾空时长，再把已经触地的脚的腾空计时清零。
+        self.feet_air_time_on_contact[:] = next_air_time
+        self.feet_air_time[:] = torch.where(filtered_contacts, torch.zeros_like(self.feet_air_time), next_air_time)
+        # 接触计时与腾空计时互斥：接触时累加，离地后立即清零。
+        self.feet_contact_time[:] = torch.where(filtered_contacts, self.feet_contact_time + self.dt, torch.zeros_like(self.feet_contact_time))
+        self.last_contacts[:] = contacts
     
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -588,7 +614,13 @@ class LeggedRobot(BaseTask):
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
+        self.feet_contact_time = torch.zeros_like(self.feet_air_time)
+        self.feet_air_time_on_contact = torch.zeros_like(self.feet_air_time)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
+        self.filtered_foot_contacts = torch.zeros_like(self.last_contacts)
+        self.first_foot_contacts = torch.zeros_like(self.last_contacts)
+        self.phase_foot_reference = torch.zeros(self.num_envs, len(self.feet_indices), 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.phase_foot_reference_initialized = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
@@ -615,6 +647,37 @@ class LeggedRobot(BaseTask):
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
+
+        gait_synced_feet = self.cfg.rewards.gait_synced_feet
+        if gait_synced_feet:
+            if len(gait_synced_feet) != 2 or any(len(pair) != 2 for pair in gait_synced_feet):
+                raise ValueError("feet_gait requires exactly two pairs of synchronized feet")
+            feet_name_to_index = {name: index for index, name in enumerate(self.feet_names)}
+            self.gait_feet_indices = torch.tensor(
+                [[feet_name_to_index[name] for name in pair] for pair in gait_synced_feet],
+                dtype=torch.long, device=self.device, requires_grad=False)
+        else:
+            self.gait_feet_indices = torch.empty(0, 2, dtype=torch.long, device=self.device, requires_grad=False)
+        joint_mirror_groups = self.cfg.rewards.joint_mirror_joint_groups
+        if joint_mirror_groups:
+            dof_name_to_index = {name: index for index, name in enumerate(self.dof_names)}
+            self.joint_mirror_indices = torch.tensor(
+                [[[dof_name_to_index[name] for name in joint_names] for joint_names in group]
+                 for group in joint_mirror_groups],
+                dtype=torch.long, device=self.device, requires_grad=False)
+            self.joint_mirror_signs = torch.tensor(
+                self.cfg.rewards.joint_mirror_signs,
+                dtype=torch.float, device=self.device, requires_grad=False)
+            if self.joint_mirror_indices.shape[1] != 2 or self.joint_mirror_indices.shape[2] != len(self.joint_mirror_signs):
+                raise ValueError("joint_mirror groups and signs have incompatible shapes")
+        else:
+            self.joint_mirror_indices = torch.empty(0, 2, 0, dtype=torch.long, device=self.device, requires_grad=False)
+            self.joint_mirror_signs = torch.empty(0, dtype=torch.float, device=self.device, requires_grad=False)
+        self.phase_foot_trajectory_phase_offsets = torch.tensor(
+            self.cfg.rewards.phase_foot_trajectory_phase_offsets,
+            dtype=torch.float, device=self.device, requires_grad=False)
+        if len(self.phase_foot_trajectory_phase_offsets) not in (0, len(self.feet_indices)):
+            raise ValueError("phase_foot_trajectory_phase_offsets must match the number of feet")
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -726,6 +789,7 @@ class LeggedRobot(BaseTask):
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
+        self.feet_names = feet_names
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:
             penalized_contact_names.extend([s for s in body_names if name in s])
@@ -962,17 +1026,126 @@ class LeggedRobot(BaseTask):
         return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
 
     def _reward_feet_air_time(self):
-        # Reward long steps
-        # Need to filter the contacts because the contact reporting of PhysX is unreliable on meshes
-        contact = self.contact_forces[:, self.feet_indices, 2] > 1.
-        contact_filt = torch.logical_or(contact, self.last_contacts) 
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * contact_filt
-        self.feet_air_time += self.dt
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
+        """在有平移指令时，根据落地前腾空时间奖励较长的步幅。"""
+        # 仅在首次触地帧结算；腾空 0.5 s 为零点，更长为正奖励，更短为负奖励。
+        rew_airTime = torch.sum((self.feet_air_time_on_contact - 0.5) * self.first_foot_contacts, dim=1) # reward only on first contact with the ground
+        # 原地站立时关闭该项，防止策略为了刷腾空时间而无指令踏步。
         rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
-        self.feet_air_time *= ~contact_filt
         return rew_airTime
+
+    def _reward_feet_gait(self):
+        """鼓励配置中的同相足同步、两组足交替，形成稳定步态。"""
+        pairs = self.gait_feet_indices
+        max_error_sq = self.cfg.rewards.gait_max_error ** 2
+        error = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        # 同一组中的两只脚应同时腾空、同时支撑，因此比较各自的腾空和接触持续时间。
+        for foot_0, foot_1 in (pairs[0], pairs[1]):
+            error += torch.clamp(torch.square(self.feet_air_time[:, foot_0] - self.feet_air_time[:, foot_1]), max=max_error_sq)
+            error += torch.clamp(torch.square(self.feet_contact_time[:, foot_0] - self.feet_contact_time[:, foot_1]), max=max_error_sq)
+        # 两组足应反相：一组的腾空持续时间应接近另一组的接触持续时间，反之亦然。
+        asynchronous_pairs = (
+            (pairs[0, 0], pairs[1, 0]),
+            (pairs[0, 1], pairs[1, 1]),
+            (pairs[0, 0], pairs[1, 1]),
+            (pairs[1, 0], pairs[0, 1]))
+        for foot_0, foot_1 in asynchronous_pairs:
+            error += torch.clamp(torch.square(self.feet_air_time[:, foot_0] - self.feet_contact_time[:, foot_1]), max=max_error_sq)
+            error += torch.clamp(torch.square(self.feet_contact_time[:, foot_0] - self.feet_air_time[:, foot_1]), max=max_error_sq)
+        # 只有收到运动指令或机器人已经在移动时才约束步态，避免干扰静止站立。
+        command_active = torch.norm(self.commands[:, :3], dim=1) > self.cfg.rewards.command_threshold
+        body_moving = torch.norm(self.base_lin_vel[:, :2], dim=1) > self.cfg.rewards.gait_velocity_threshold
+        # 误差越小越接近 1；gait_sigma 越小，对不同步越敏感。
+        return torch.exp(-error / self.cfg.rewards.gait_sigma) * torch.logical_or(command_active, body_moving)
+
+    def _reward_joint_mirror(self):
+        """计算配对腿相对默认关节角的镜像误差，配合负权重抑制不对称姿态。"""
+        # 比较相对默认站姿的偏移，而非直接比较绝对关节角，避免破坏 Go2 的默认构型。
+        joint_pos_relative = self.dof_pos - self.default_dof_pos
+        left = joint_pos_relative[:, self.joint_mirror_indices[:, 0, :]]
+        right = joint_pos_relative[:, self.joint_mirror_indices[:, 1, :]]
+        # signs 指定各关节镜像后的方向关系：髋外展通常反号，大腿和小腿通常同号。
+        error = torch.square(left - self.joint_mirror_signs.view(1, 1, -1) * right)
+        # 此处返回非负误差；配置中的负 scale 将它转换为惩罚。
+        return torch.mean(torch.sum(error, dim=2), dim=1)
+
+    def _reward_feet_slide(self):
+        """统计支撑脚的水平滑动速度，配合负权重惩罚打滑。"""
+        # 只计算稳定接触的脚；腾空脚的正常摆动速度不会被惩罚。
+        feet_speed_xy = torch.norm(self.foot_velocities[:, :, :2], dim=2)
+        return torch.sum(feet_speed_xy * self.filtered_foot_contacts.float(), dim=1)
+
+    def _reward_foot_impact_velocity(self):
+        """统计首次触地时超过阈值的向下速度，配合负权重减轻落脚冲击。"""
+        # 低于 impact_speed_threshold 的轻微向下速度不计入，超出部分使用平方惩罚。
+        downward_speed = torch.clamp(-self.foot_velocities[:, :, 2] - self.cfg.rewards.impact_speed_threshold, min=0.)
+        return torch.sum(self.first_foot_contacts.float() * torch.square(downward_speed), dim=1)
+
+    def _reward_feet_contact_without_cmd(self):
+        """零运动指令时按接触脚数量给奖励，鼓励机器人安稳四脚站立。"""
+        command_is_zero = torch.norm(self.commands[:, :3], dim=1) < self.cfg.rewards.command_threshold
+        # 有运动指令时该项为零，不会阻碍正常抬脚行走。
+        return torch.sum(self.filtered_foot_contacts.float(), dim=1) * command_is_zero
+
+    def _reward_phase_foot_trajectory_exp(self):
+        """在机身坐标系中跟踪按相位生成的足端轨迹，并以指数形式给奖励。"""
+        num_feet = len(self.feet_indices)
+        cycle_time = self.cfg.rewards.phase_foot_trajectory_cycle_time
+        stance_ratio = self.cfg.rewards.phase_foot_trajectory_stance_ratio
+        horizontal_span = self.cfg.rewards.phase_foot_trajectory_horizontal_span
+        swing_height = self.cfg.rewards.phase_foot_trajectory_swing_height
+        # 每只脚使用同一个周期，并通过 phase_offsets 设置同相或反相关系。
+        phase_time = self.episode_length_buf.float() * self.dt
+        phase = torch.remainder(phase_time.unsqueeze(1) / cycle_time + self.phase_foot_trajectory_phase_offsets.unsqueeze(0), 1.)
+        stance_mask = phase < stance_ratio
+        # 支撑相：参考足端沿机身 x 轴从前向后匀速移动，z 方向保持不抬脚。
+        stance_phase = phase / stance_ratio
+        q_stance = horizontal_span * (1. - 2. * stance_phase)
+        dq_stance = torch.full_like(phase, -2. * horizontal_span / (stance_ratio * cycle_time))
+        # 摆动相：用五阶 Bezier 曲线从后向前摆腿，中段抬高至 swing_height。
+        swing_phase = torch.clamp((phase - stance_ratio) / (1. - stance_ratio), 0., 1.)
+        control_points = torch.tensor(
+            [
+                [-horizontal_span, 0.],
+                [-0.95 * horizontal_span, 0.80 * swing_height],
+                [-0.55 * horizontal_span, swing_height],
+                [0.55 * horizontal_span, swing_height],
+                [0.95 * horizontal_span, 0.80 * swing_height],
+                [horizontal_span, 0.],
+            ],
+            dtype=torch.float, device=self.device, requires_grad=False)
+        position_weights = torch.stack(
+            [math.comb(5, index) * (1. - swing_phase) ** (5 - index) * swing_phase ** index for index in range(6)], dim=-1)
+        swing_position = torch.matmul(position_weights, control_points)
+        derivative_points = 5. * (control_points[1:] - control_points[:-1])
+        derivative_weights = torch.stack(
+            [math.comb(4, index) * (1. - swing_phase) ** (4 - index) * swing_phase ** index for index in range(5)], dim=-1)
+        swing_velocity = torch.matmul(derivative_weights, derivative_points) / ((1. - stance_ratio) * cycle_time)
+        # 根据当前相位拼出期望位置偏移 (x, y, z) 和期望速度；y 方向不施加摆动轨迹。
+        q = torch.where(stance_mask, q_stance, swing_position[:, :, 0])
+        z = torch.where(stance_mask, torch.zeros_like(phase), swing_position[:, :, 1])
+        dq = torch.where(stance_mask, dq_stance, swing_velocity[:, :, 0])
+        dz = torch.where(stance_mask, torch.zeros_like(phase), swing_velocity[:, :, 1])
+        trajectory_offset = torch.stack((q, torch.zeros_like(q), z), dim=2)
+        reference_velocity = torch.stack((dq, torch.zeros_like(dq), dz), dim=2)
+        base_quat = self.base_quat.unsqueeze(1).expand(-1, num_feet, -1).reshape(-1, 4)
+        relative_foot_position = self.foot_positions - self.root_states[:, :3].unsqueeze(1)
+        relative_foot_velocity = self.foot_velocities - self.root_states[:, 7:10].unsqueeze(1)
+        # 将世界坐标中的足端位置和速度转换到机身坐标系，使奖励不受机器人朝向影响。
+        foot_position_base = quat_rotate_inverse(base_quat, relative_foot_position.reshape(-1, 3)).view(self.num_envs, num_feet, 3)
+        foot_velocity_base = quat_rotate_inverse(base_quat, relative_foot_velocity.reshape(-1, 3)).view(self.num_envs, num_feet, 3)
+        # 每回合首次计算时记录足端基准点，之后只要求跟踪相对于该基准点的周期偏移。
+        uninitialized = ~self.phase_foot_reference_initialized
+        self.phase_foot_reference[uninitialized] = foot_position_base[uninitialized] - trajectory_offset[uninitialized]
+        self.phase_foot_reference_initialized[uninitialized] = True
+        reference_position = self.phase_foot_reference + trajectory_offset
+        # 位置误差始终参与；速度误差可通过 velocity_weight 调节，设为 0 时完全关闭。
+        position_error = torch.sum(torch.square(foot_position_base - reference_position), dim=(1, 2))
+        velocity_error = torch.sum(torch.square(foot_velocity_base - reference_velocity), dim=(1, 2))
+        total_error = position_error + self.cfg.rewards.phase_foot_trajectory_velocity_weight * velocity_error
+        # 误差为 0 时奖励为 1，误差增大后指数衰减；仅在存在运动指令时启用。
+        reward = torch.exp(-total_error / self.cfg.rewards.phase_foot_trajectory_std ** 2)
+        command_active = torch.norm(self.commands[:, :3], dim=1) > self.cfg.rewards.command_threshold
+        return reward * command_active
     
     def _reward_stumble(self):
         # Penalize feet hitting vertical surfaces

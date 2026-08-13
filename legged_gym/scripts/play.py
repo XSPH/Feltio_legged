@@ -108,7 +108,7 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/rough_go2_tshim/Aug07_22-33-07_/model_20000.pt"
+    policy_path = "/home/asuka/Legged/Feltio_legged/logs/rough_go2_tshim/Aug12_00-34-27_/model_20000.pt"
     if not os.path.isfile(policy_path):
         raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False
@@ -127,7 +127,7 @@ def play(args):
     
     # export policy as a jit module (used to run it from C++)
     if EXPORT_POLICY:
-        path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
+        path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', 'exported')
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         export_policy_as_onnx(ppo_runner.alg.actor_critic, path)
         print('Exported policy as JIT and ONNX to: ', path)

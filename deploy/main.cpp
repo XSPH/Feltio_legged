@@ -34,6 +34,28 @@ double g_last_y = 0.0;
 std::atomic<bool> g_reset_requested{false};
 std::atomic<UserCommand> g_keyboard_command{UserCommand::NONE};
 
+struct KeyboardMovement {
+    bool forward = false;
+    bool backward = false;
+    bool left = false;
+    bool right = false;
+    bool turn_left = false;
+    bool turn_right = false;
+};
+
+KeyboardMovement g_keyboard_movement;
+
+UserValue getKeyboardValue() {
+    UserValue value;
+    value.lx = static_cast<float>(g_keyboard_movement.right) -
+               static_cast<float>(g_keyboard_movement.left);
+    value.ly = static_cast<float>(g_keyboard_movement.backward) -
+               static_cast<float>(g_keyboard_movement.forward);
+    value.rx = static_cast<float>(g_keyboard_movement.turn_right) -
+               static_cast<float>(g_keyboard_movement.turn_left);
+    return value;
+}
+
 bool controlPressed(GLFWwindow* window) {
     return glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
            glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -86,6 +108,23 @@ void beginForceDrag(GLFWwindow* window, double x, double y) {
 }
 
 void keyboard(GLFWwindow*, int key, int, int action, int) {
+    const bool pressed = action != GLFW_RELEASE;
+    if (key == GLFW_KEY_W) {
+        g_keyboard_movement.forward = pressed;
+    } else if (key == GLFW_KEY_S) {
+        g_keyboard_movement.backward = pressed;
+    } else if (key == GLFW_KEY_A) {
+        g_keyboard_movement.left = pressed;
+    } else if (key == GLFW_KEY_D) {
+        g_keyboard_movement.right = pressed;
+    } else if (key == GLFW_KEY_Q) {
+        g_keyboard_movement.turn_left = pressed;
+    } else if (key == GLFW_KEY_E) {
+        g_keyboard_movement.turn_right = pressed;
+    } else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        g_keyboard_movement = KeyboardMovement{};
+    }
+
     if (action != GLFW_PRESS) {
         return;
     }
@@ -255,11 +294,13 @@ int main() {
         glfwSetMouseButtonCallback(window, mouseButton);
         glfwSetScrollCallback(window, scroll);
 
-        IOInterface *ioInter = new IOMujoco(g_data, g_model, &config);
+        IOMujoco *ioInter = new IOMujoco(g_data, g_model, &config);
         CtrlComponents ctrlComp(ioInter, &config);
         ControlFrame ctrlFrame(&ctrlComp);
 
         std::cout << "Controls: B/F=fixed stand, A/R=RL, Y/P=passive, "
+                     "W/S=forward/backward, A/D=left/right, "
+                     "Q/E=turn left/right, Space=stop keyboard command, "
                      "Ctrl+left drag=apply force, Backspace=reset\n";
         const double policy_dt =
             config.simulation_timestep * config.simulation_decimation;
@@ -270,6 +311,7 @@ int main() {
         while (!glfwWindowShouldClose(window)) {
             if (g_reset_requested.exchange(false)) {
                 clearPerturbation();
+                g_keyboard_movement = KeyboardMovement{};
                 initializePose(g_model, g_data, config);
                 ctrlFrame.reset();
                 next_render_time = g_data->time;
@@ -280,6 +322,7 @@ int main() {
             if (keyboard_command != UserCommand::NONE) {
                 ctrlComp.setUserCommand(keyboard_command);
             }
+            ioInter->setKeyboardValue(getKeyboardValue());
 
             ctrlFrame.run();
             mju_zero(g_data->xfrc_applied, 6 * g_model->nbody);

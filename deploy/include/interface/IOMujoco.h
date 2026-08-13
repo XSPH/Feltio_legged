@@ -17,6 +17,7 @@ public:
     void sendRecv(LowlevelCmd *cmd, LowlevelState *state);
     void send(LowlevelCmd *cmd, LowlevelState *state);
     void recv(LowlevelState *state);
+    void setKeyboardValue(const UserValue& value);
 
 private:
     mjData *_data;
@@ -26,7 +27,7 @@ private:
     std::array<int, 12> _actuatorId;
     int _baseBodyId;
     int _rootQposAddr;
+    UserValue _keyboardValue;
 };
 
 #endif
-

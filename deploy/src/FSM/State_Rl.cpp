@@ -69,7 +69,7 @@ void State_Rl::getObservation(){
         obs[i + 3] = gravity[i];
     }
 
-    // 6~8: vx, vy and yaw commands from the gamepad
+    // 6~8: vx, vy and yaw commands from the gamepad or keyboard
     float commandX = -applyDeadzone(_userValue.ly) * _config->max_linear_x;
     float commandY = -applyDeadzone(_userValue.lx) * _config->max_linear_y;
     float commandYaw = -applyDeadzone(_userValue.rx) * _config->max_angular_z;

@@ -58,6 +58,10 @@ void IOMujoco::sendRecv(LowlevelCmd *cmd, LowlevelState *state){
     recv(state);
 }
 
+void IOMujoco::setKeyboardValue(const UserValue& value){
+    _keyboardValue = value;
+}
+
 void IOMujoco::recv(LowlevelState *state){
     for(int i = 0; i < 12; i++){
         state->motorState[i].q = static_cast<float>(_data->qpos[_qposAddr[i]]);
@@ -76,7 +80,15 @@ void IOMujoco::recv(LowlevelState *state){
     }
 
     state->userCmd = cmdPanel->getUserCmd();
-    state->userValue = cmdPanel->getUserValue();
+    const UserValue joystickValue = cmdPanel->getUserValue();
+    state->userValue.lx = std::clamp(joystickValue.lx + _keyboardValue.lx,
+                                    -1.0f, 1.0f);
+    state->userValue.ly = std::clamp(joystickValue.ly + _keyboardValue.ly,
+                                    -1.0f, 1.0f);
+    state->userValue.rx = std::clamp(joystickValue.rx + _keyboardValue.rx,
+                                    -1.0f, 1.0f);
+    state->userValue.ry = std::clamp(joystickValue.ry + _keyboardValue.ry,
+                                    -1.0f, 1.0f);
 }
 
 void IOMujoco::send(LowlevelCmd *cmd, LowlevelState *state){

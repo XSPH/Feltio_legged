@@ -4,10 +4,10 @@ class GO2RoughCfg( LeggedRobotCfg ):
     class init_state( LeggedRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.42] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
-            'FL_hip_joint': 0.1,   # [rad]
-            'RL_hip_joint': 0.1,   # [rad]
-            'FR_hip_joint': -0.1 ,  # [rad]
-            'RR_hip_joint': -0.1,   # [rad]
+            'FL_hip_joint': 0.0,   # [rad]
+            'RL_hip_joint': 0.0,   # [rad]
+            'FR_hip_joint': 0.0 ,  # [rad]
+            'RR_hip_joint': 0.0,   # [rad]
 
             'FL_thigh_joint': 0.8,     # [rad]
             'RL_thigh_joint': 1.,   # [rad]
@@ -27,6 +27,7 @@ class GO2RoughCfg( LeggedRobotCfg ):
         damping = {'joint': 0.5}     # [N*m*s/rad]
         # action scale: target angle = actionScale * action + defaultAngle
         action_scale = 0.25
+        hip_reduction = 0.5
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
 
@@ -39,11 +40,48 @@ class GO2RoughCfg( LeggedRobotCfg ):
         self_collisions = 1 # 1 to disable, 0 to enable...bitwise filter
   
     class rewards( LeggedRobotCfg.rewards ):
-        soft_dof_pos_limit = 0.8
+        soft_dof_pos_limit = 0.9
         base_height_target = 0.38
+        # Go2 对角腿为同相足：左前-右后同步，右前-左后同步，两组交替运动。
+        gait_synced_feet = (
+            ("FL_foot", "RR_foot"),
+            ("FR_foot", "RL_foot"),
+        )
+        gait_sigma = 0.05
+        gait_max_error = 0.2
+        gait_velocity_threshold = 0.5
+        # 分别比较两组对角腿相对默认站姿的关节偏移。
+        joint_mirror_joint_groups = (
+            (
+                ("FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"),
+                ("RR_hip_joint", "RR_thigh_joint", "RR_calf_joint"),
+            ),
+            (
+                ("FR_hip_joint", "FR_thigh_joint", "FR_calf_joint"),
+                ("RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"),
+            ),
+        )
+        # 髋外展关节镜像时反号，大腿和小腿关节同号。
+        joint_mirror_signs = (-1.0, 1.0, 1.0)
+        # 足端顺序沿用 feet_names；0/0.5 将两组对角腿错开半个周期。
+        phase_foot_trajectory_cycle_time = 0.4
+        phase_foot_trajectory_phase_offsets = (0.0, 0.5, 0.5, 0.0)
+        phase_foot_trajectory_stance_ratio = 0.5
+        # 当前前后摆幅为 0，只约束摆动相的竖直抬脚高度。
+        phase_foot_trajectory_horizontal_span = 0.0
+        phase_foot_trajectory_swing_height = 0.08
         class scales( LeggedRobotCfg.rewards.scales ):
             torques = -1e-4
-            dof_pos_limits = -2.
+            dof_pos_limits = -5.
+            # 正权重项：鼓励对角步态和相位轨迹跟踪。
+            feet_gait = 0.1
+            phase_foot_trajectory_exp = 0.2
+            # 负权重项：惩罚关节不对称、支撑脚打滑和过大的落脚速度。
+            joint_mirror = -0.05
+            feet_slide = -0.05
+            foot_impact_velocity = -1.0
+            # 该项使用正权重，零指令时按落地脚数量奖励稳定站立。
+            feet_contact_without_cmd = 0.1
 
 class GO2RoughCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):

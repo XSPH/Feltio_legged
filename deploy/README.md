@@ -41,6 +41,10 @@ Controller mapping:
 - Xbox `B` or keyboard `F`: fixed stand
 - Xbox `A` or keyboard `R`: RL policy
 - Xbox `Y` or keyboard `P`: passive
+- Hold `W`/`S`: move forward/backward in RL mode
+- Hold `A`/`D`: move left/right in RL mode
+- Hold `Q`/`E`: turn left/right in RL mode
+- Space: clear the keyboard movement command
 - Backspace: reset simulation and FSM
 - `Ctrl` + left-click and drag a robot link: apply an external force
 

@@ -12,7 +12,7 @@ State_FixedStand::State_FixedStand(CtrlComponents *ctrlComp)
 
 void State_FixedStand::enter(){
     _percent = 0;
-    _lowCmd->setGain(_config->stiffness, _config->damping);
+    _lowCmd->setStanceGain();
     for(int i = 0; i < 12; i++){
         _startPos[i] = _lowState->motorState[i].q;
         _targetPos[i] = _config->default_joint_angles[i];

@@ -27,7 +27,7 @@ WirelessHandle::WirelessHandle(std::string device)
     if (_xboxFd < 0) {
         std::cerr << "[joystick] " << _device << " unavailable: "
                   << std::strerror(errno)
-                  << ". Keyboard P/F/R remains available.\n";
+                  << ". Keyboard P/F/R and movement controls remain available.\n";
         return;
     }
     _running.store(true);

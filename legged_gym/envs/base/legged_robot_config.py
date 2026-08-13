@@ -138,7 +138,14 @@ class LeggedRobotCfg(BaseConfig):
             dof_acc = -2.5e-7
             dof_power = -2e-5
             base_height = -1.
-            feet_air_time =  1.0
+            feet_air_time = 0.
+            # 新增奖励项的默认权重均为 0，由具体机器人配置按需开启。
+            feet_gait = 0.
+            phase_foot_trajectory_exp = 0.
+            joint_mirror = 0.
+            feet_slide = 0.
+            foot_impact_velocity = 0.
+            feet_contact_without_cmd = 0.
             collision = -1.
             feet_stumble = -0.0 
             action_rate = -0.01
@@ -155,6 +162,34 @@ class LeggedRobotCfg(BaseConfig):
         soft_torque_limit = 0.9
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized
+        # 足端法向力超过该值即视为接触；command_threshold 用于区分静止与运动指令。
+        foot_contact_force_threshold = 1.0
+        command_threshold = 0.1
+
+        # 步态同步奖励：每个二元组是一组同相足，两组之间按反相关系计算误差。
+        gait_synced_feet = ()
+        # sigma 控制指数奖励对误差的敏感度，max_error 限制单项误差，velocity_threshold 判断机身是否已在移动。
+        gait_sigma = 0.05
+        gait_max_error = 0.2
+        gait_velocity_threshold = 0.5
+
+        # 关节镜像惩罚：每组包含两条待比较的腿，signs 定义对应关节同号或反号。
+        joint_mirror_joint_groups = ()
+        joint_mirror_signs = ()
+
+        # 首次触地时，仅惩罚超过该阈值的向下速度。
+        impact_speed_threshold = 0.1
+
+        # 相位足端轨迹：std 控制指数奖励宽容度，cycle_time 和 stance_ratio 定义步态周期。
+        phase_foot_trajectory_std = 0.12
+        phase_foot_trajectory_cycle_time = 0.4
+        # offsets 必须与足端顺序一致；horizontal_span 和 swing_height 分别控制前后摆幅与抬脚高度。
+        phase_foot_trajectory_phase_offsets = ()
+        phase_foot_trajectory_stance_ratio = 0.5
+        phase_foot_trajectory_horizontal_span = 0.08
+        phase_foot_trajectory_swing_height = 0.08
+        # 设为 0 时只跟踪位置；大于 0 时同时约束足端速度。
+        phase_foot_trajectory_velocity_weight = 0.0
 
     class normalization:
         class obs_scales:

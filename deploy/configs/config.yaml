@@ -16,23 +16,23 @@ simulation:
 
 controller:
   action_scale: 0.25
-  hip_reduction: 1.0
+  hip_reduction: 0.5
   stiffness: 20.0
   damping: 0.5
   stand_duration: 2.0
   clip_observations: 100.0
   clip_actions: 100.0
   default_joint_angles:
-    - 0.1
+    - 0.0
     - 0.8
     - -1.5
-    - -0.1
+    - 0.0
     - 0.8
     - -1.5
-    - 0.1
+    - 0.0
     - 1.0
     - -1.5
-    - -0.1
+    - 0.0
     - 1.0
     - -1.5
 
