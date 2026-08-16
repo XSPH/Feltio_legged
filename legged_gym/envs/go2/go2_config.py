@@ -32,7 +32,8 @@ class GO2RoughCfg( LeggedRobotCfg ):
         decimation = 4
 
     class asset( LeggedRobotCfg.asset ):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
+        # file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/TOE_dog4.5/urdf/dog.urdf'
         name = "go2"
         foot_name = "foot"
         penalize_contacts_on = ["thigh", "calf"]
@@ -88,6 +89,7 @@ class GO2RoughCfgPPO( LeggedRobotCfgPPO ):
         entropy_coef = 0.01
     class runner( LeggedRobotCfgPPO.runner ):
         run_name = ''
-        experiment_name = 'rough_go2_tshim'
+        # experiment_name = 'rough_go2_tshim'
+        experiment_name = 'dog4.5_cts'
 
   

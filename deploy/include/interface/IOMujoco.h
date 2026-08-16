@@ -25,8 +25,8 @@ private:
     std::array<int, 12> _qposAddr;
     std::array<int, 12> _dofAddr;
     std::array<int, 12> _actuatorId;
-    int _baseBodyId;
     int _rootQposAddr;
+    int _rootDofAddr;
     UserValue _keyboardValue;
 };
 

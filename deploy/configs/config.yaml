@@ -8,7 +8,9 @@ model:
   num_threads: 2
 
 simulation:
-  scene: ../models/go2/stairs.xml
+  # Go2: ../models/go2/stairs.xml
+  # TOE_dog4.5: ../../resources/robots/TOE_dog4.5/xml/scene.xml
+  scene: ../../resources/robots/TOE_dog4.5/xml/scene.xml
   timestep: 0.005
   decimation: 4
   render_hz: 60.0

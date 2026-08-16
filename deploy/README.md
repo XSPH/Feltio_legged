@@ -1,4 +1,4 @@
-# Go2 MuJoCo deployment
+# Go2 and TOE_dog4.5 MuJoCo deployment
 
 This directory contains only the MuJoCo simulation path and the three-state
 controller (`passive -> fixed stand -> RL`). The RL state supports one
@@ -14,8 +14,8 @@ MNN_CONVERTER=/path/to/MNNConvert \
   ./tools/convert_onnx_to_mnn.sh /path/to/policy.onnx models/policy.mnn
 ```
 
-With no arguments, the script reads the policy exported under
-`logs/rough_go2_tshim` and writes `deploy/models/policy.mnn`.
+With no arguments, the script reads `logs/exported/policy.onnx` and writes
+`deploy/models/policy.mnn`.
 Convert a new model before running `dogsim`; an earlier 45-input
 `policy.mnn` is rejected by the deployment shape check.
 
@@ -52,9 +52,15 @@ Robot collision primitives are hidden in the viewer. This only changes their
 display; collision detection and contact forces remain enabled. The floor and
 terrain geometry remain visible.
 
-The complete Go2 XML, URDF and mesh assets are copied unchanged from
-`go2_rl_gym/resources/robots/go2`. The default scene is the original
-`models/go2/flat.xml`.
+Select the robot through `simulation.scene` in `configs/config.yaml`:
+
+- Go2: `../models/go2/stairs.xml`
+- TOE_dog4.5: `../../resources/robots/TOE_dog4.5/xml/scene.xml`
+
+Joint order is shared by both robots. The runtime resolves the floating base
+and each actuator from the loaded model, so switching scenes does not require a
+C++ change. Select the policy model trained for the same robot through
+`model.path` at the same time.
 
 The physics step is 0.005 s and the actor runs every four physics steps (50 Hz),
 as configured in `configs/config.yaml`.

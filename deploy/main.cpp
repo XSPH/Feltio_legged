@@ -191,12 +191,25 @@ void scroll(GLFWwindow*, double, double y_offset) {
                    &g_scene, &g_camera);
 }
 
+int getRootJointId(const mjModel* model) {
+    const int named_root = mj_name2id(model, mjOBJ_JOINT, "root");
+    if (named_root >= 0) {
+        if (model->jnt_type[named_root] != mjJNT_FREE) {
+            throw std::runtime_error("MuJoCo joint 'root' must be a free joint");
+        }
+        return named_root;
+    }
+    for (int joint_id = 0; joint_id < model->njnt; ++joint_id) {
+        if (model->jnt_type[joint_id] == mjJNT_FREE) {
+            return joint_id;
+        }
+    }
+    throw std::runtime_error("MuJoCo free root joint not found");
+}
+
 void initializePose(const mjModel* model, mjData* data, const DeployConfig& config) {
     mj_resetData(model, data);
-    const int root_id = mj_name2id(model, mjOBJ_JOINT, "root");
-    if (root_id < 0) {
-        throw std::runtime_error("MuJoCo root joint not found");
-    }
+    const int root_id = getRootJointId(model);
     const int root_qpos = model->jnt_qposadr[root_id];
     data->qpos[root_qpos + 0] = 0.0;
     data->qpos[root_qpos + 1] = 0.0;
@@ -257,7 +270,7 @@ int main() {
         if (!glfwInit()) {
             throw std::runtime_error("Failed to initialize GLFW");
         }
-        window = glfwCreateWindow(1200, 900, "Go2 RL MuJoCo", nullptr, nullptr);
+        window = glfwCreateWindow(1200, 900, "Legged Robot RL MuJoCo", nullptr, nullptr);
         if (window == nullptr) {
             throw std::runtime_error("Failed to create GLFW window");
         }
@@ -270,9 +283,7 @@ int main() {
         mjv_defaultPerturb(&g_perturb);
         mjr_defaultContext(&g_context);
 
-        // Robot collision primitives are ungrouped, while visual meshes use
-        // group 2. Move only the robot collision geoms to a hidden render
-        // group; world geoms such as the floor and stairs remain visible.
+        // Move ungrouped robot collision geoms to the hidden collision group.
         for (int geom_id = 0; geom_id < g_model->ngeom; ++geom_id) {
             if (g_model->geom_bodyid[geom_id] != 0 &&
                 g_model->geom_group[geom_id] == 0) {
@@ -284,7 +295,8 @@ int main() {
         mjv_makeScene(g_model, &g_scene, 2000);
         mjr_makeContext(g_model, &g_context, mjFONTSCALE_150);
         g_camera.type = mjCAMERA_TRACKING;
-        g_camera.trackbodyid = mj_name2id(g_model, mjOBJ_BODY, "base");
+        const int root_id = getRootJointId(g_model);
+        g_camera.trackbodyid = g_model->jnt_bodyid[root_id];
         g_camera.distance = 2.0;
         g_camera.azimuth = 135.0;
         g_camera.elevation = -20.0;
@@ -330,6 +342,12 @@ int main() {
                 mjv_applyPerturbForce(g_model, g_data, &g_perturb);
             }
             for (int i = 0; i < config.simulation_decimation; ++i) {
+                if (i > 0) {
+                    // Hold the policy target for one policy period, but refresh
+                    // the PD torque from the latest state every physics step.
+                    ctrlComp.sendRecv();
+                    ctrlComp.send();
+                }
                 mj_step(g_model, g_data);
             }
 
