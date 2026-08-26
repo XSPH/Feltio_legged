@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -57,7 +58,7 @@ IOMujoco::IOMujoco(mjData *data, mjModel *model, const DeployConfig *config)
         throw std::runtime_error("IOMujoco received a null pointer");
     }
 
-    cmdPanel = new WirelessHandle(config->joystick_device);
+    cmdPanel = std::make_unique<WirelessHandle>(config->joystick_device);
     for(int i = 0; i < 12; i++){
         int jointId = getMujocoId(_model, mjOBJ_JOINT, jointNames[i]);
         _qposAddr[i] = _model->jnt_qposadr[jointId];
@@ -71,8 +72,24 @@ IOMujoco::IOMujoco(mjData *data, mjModel *model, const DeployConfig *config)
 }
 
 void IOMujoco::sendRecv(LowlevelCmd *cmd, LowlevelState *state){
-    (void)cmd;
     recv(state);
+    for(int i = 0; i < 12; i++){
+        cmd->motorCmd[i].tau = cmd->motorCmd[i].Kp
+                             * (cmd->motorCmd[i].q - state->motorState[i].q)
+                             + cmd->motorCmd[i].Kd
+                             * (cmd->motorCmd[i].dq - state->motorState[i].dq);
+    }
+
+    state->userCmd = cmdPanel->getUserCmd();
+    const UserValue joystickValue = cmdPanel->getUserValue();
+    state->userValue.lx = std::clamp(joystickValue.lx + _keyboardValue.lx,
+                                    -1.0f, 1.0f);
+    state->userValue.ly = std::clamp(joystickValue.ly + _keyboardValue.ly,
+                                    -1.0f, 1.0f);
+    state->userValue.rx = std::clamp(joystickValue.rx + _keyboardValue.rx,
+                                    -1.0f, 1.0f);
+    state->userValue.ry = std::clamp(joystickValue.ry + _keyboardValue.ry,
+                                    -1.0f, 1.0f);
 }
 
 void IOMujoco::setKeyboardValue(const UserValue& value){
@@ -95,24 +112,11 @@ void IOMujoco::recv(LowlevelState *state){
     for(int i = 0; i < 3; i++){
         state->imu.gyroscope[i] = static_cast<float>(_data->qvel[_rootDofAddr + 3 + i]);
     }
-
-    state->userCmd = cmdPanel->getUserCmd();
-    const UserValue joystickValue = cmdPanel->getUserValue();
-    state->userValue.lx = std::clamp(joystickValue.lx + _keyboardValue.lx,
-                                    -1.0f, 1.0f);
-    state->userValue.ly = std::clamp(joystickValue.ly + _keyboardValue.ly,
-                                    -1.0f, 1.0f);
-    state->userValue.rx = std::clamp(joystickValue.rx + _keyboardValue.rx,
-                                    -1.0f, 1.0f);
-    state->userValue.ry = std::clamp(joystickValue.ry + _keyboardValue.ry,
-                                    -1.0f, 1.0f);
 }
 
-void IOMujoco::send(LowlevelCmd *cmd, LowlevelState *state){
+void IOMujoco::send(LowlevelCmd *cmd){
     for(int i = 0; i < 12; i++){
-        float torque = cmd->motorCmd[i].tau
-                     + cmd->motorCmd[i].Kp * (cmd->motorCmd[i].q - state->motorState[i].q)
-                     + cmd->motorCmd[i].Kd * (cmd->motorCmd[i].dq - state->motorState[i].dq);
+        float torque = cmd->motorCmd[i].tau;
 
         if(!std::isfinite(torque)){
             torque = 0;

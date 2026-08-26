@@ -57,9 +57,9 @@ rl_Inference::~rl_Inference(){
     }
 }
 
-void rl_Inference::advanceNNsync(const float history[NUM_POLICY_INPUTS],
-                                 float actionCmd[NUM_ACTIONS]){
-    std::copy_n(history, NUM_POLICY_INPUTS, _inputTensor->host<float>());
+void rl_Inference::advanceNNsync_Walk(const float observation[NUM_POLICY_INPUTS],
+                                      float actionCmd[NUM_ACTIONS]){
+    std::copy_n(observation, NUM_POLICY_INPUTS, _inputTensor->host<float>());
 
     MNN::ErrorCode errorCode = _net->runSession(_session);
     if(errorCode != MNN::NO_ERROR){

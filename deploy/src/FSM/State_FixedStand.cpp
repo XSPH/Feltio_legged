@@ -12,24 +12,28 @@ State_FixedStand::State_FixedStand(CtrlComponents *ctrlComp)
 
 void State_FixedStand::enter(){
     _percent = 0;
-    _lowCmd->setStanceGain();
+    const FelConfig& cfg = _config->fel;
+    for(int i = 0; i < 4; i++){
+        _lowCmd->setLegGains(i, cfg.sim_stance_gain);
+        _lowCmd->setZeroDq(i);
+        _lowCmd->setZeroTau(i);
+    }
     for(int i = 0; i < 12; i++){
         _startPos[i] = _lowState->motorState[i].q;
-        _targetPos[i] = _config->default_joint_angles[i];
+        _targetPos[i] = cfg.default_dof_pos[i];
     }
 }
 
 void State_FixedStand::run(){
     float controlDt = static_cast<float>(_config->simulation_timestep
                                          * _config->simulation_decimation);
-    _percent += controlDt / _config->stand_duration;
+    _percent += controlDt / _config->fel.stand_duration;
     _percent = std::min(_percent, 1.0f);
 
     for(int i = 0; i < 12; i++){
         _lowCmd->motorCmd[i].q = (1 - _percent) * _startPos[i]
                                + _percent * _targetPos[i];
         _lowCmd->motorCmd[i].dq = 0;
-        _lowCmd->motorCmd[i].tau = 0;
     }
 }
 

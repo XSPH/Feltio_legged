@@ -16,8 +16,8 @@ public:
     rl_Inference(const std::filesystem::path& modelPath, int numThreads);
     ~rl_Inference();
 
-    void advanceNNsync(const float history[NUM_POLICY_INPUTS],
-                       float actionCmd[NUM_ACTIONS]);
+    void advanceNNsync_Walk(const float observation[NUM_POLICY_INPUTS],
+                            float actionCmd[NUM_ACTIONS]);
 
 private:
     MNN::Interpreter *_net;

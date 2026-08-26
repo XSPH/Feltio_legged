@@ -15,7 +15,7 @@ public:
     ~IOMujoco(){}
 
     void sendRecv(LowlevelCmd *cmd, LowlevelState *state);
-    void send(LowlevelCmd *cmd, LowlevelState *state);
+    void send(LowlevelCmd *cmd);
     void recv(LowlevelState *state);
     void setKeyboardValue(const UserValue& value);
 

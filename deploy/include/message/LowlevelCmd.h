@@ -1,6 +1,8 @@
 #ifndef LOWLEVELCMD_H
 #define LOWLEVELCMD_H
 
+#include "config/DeployConfig.h"
+
 struct MotorCmd_user{
     float q;
     float dq;
@@ -20,21 +22,22 @@ struct MotorCmd_user{
 struct LowlevelCmd{
     MotorCmd_user motorCmd[12];
 
-    void setGain(float kp, float kd){
-        for(int i = 0; i < 12; i++){
-            motorCmd[i].Kp = kp;
-            motorCmd[i].Kd = kd;
+    void setLegGains(int legId, const LegGains& gains){
+        for(int i = 0; i < 3; i++){
+            motorCmd[legId * 3 + i].Kp = gains.Kp[i];
+            motorCmd[legId * 3 + i].Kd = gains.Kd[i];
         }
     }
 
-    void setStanceGain(){
-        for(int i = 0; i < 4; i++){
-            motorCmd[i * 3].Kp = 30;
-            motorCmd[i * 3].Kd = 0.75;
-            motorCmd[i * 3 + 1].Kp = 50;
-            motorCmd[i * 3 + 1].Kd = 1.25;
-            motorCmd[i * 3 + 2].Kp = 60;
-            motorCmd[i * 3 + 2].Kd = 1.5;
+    void setZeroDq(int legId){
+        for(int i = 0; i < 3; i++){
+            motorCmd[legId * 3 + i].dq = 0;
+        }
+    }
+
+    void setZeroTau(int legId){
+        for(int i = 0; i < 3; i++){
+            motorCmd[legId * 3 + i].tau = 0;
         }
     }
 

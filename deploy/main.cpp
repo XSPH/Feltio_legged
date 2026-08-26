@@ -231,7 +231,7 @@ void initializePose(const mjModel* model, mjData* data, const DeployConfig& conf
             throw std::runtime_error(std::string("MuJoCo joint not found: ") +
                                      joint_names[i]);
         }
-        data->qpos[model->jnt_qposadr[joint_id]] = config.default_joint_angles[i];
+        data->qpos[model->jnt_qposadr[joint_id]] = config.fel.default_dof_pos[i];
     }
     mj_forward(model, data);
 }
@@ -253,7 +253,7 @@ int main() {
         const DeployConfig config = DeployConfig::loadDefault();
         std::cout << "[config] " << config.config_path << '\n'
                   << "[scene]  " << config.scene_path << '\n'
-                  << "[model]  " << config.model_path << '\n';
+                  << "[model]  " << config.fel.model_path << '\n';
 
         char error[1024]{};
         g_model = mj_loadXML(config.scene_path.c_str(), nullptr, error, sizeof(error));

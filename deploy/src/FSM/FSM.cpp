@@ -34,23 +34,22 @@ void FSM::run(){
     _ctrlComp->sendRecv();
 
     if(_mode == FSMMode::NORMAL){
+        _currentState->run();
         _nextStateName = _currentState->checkChange();
         if(_nextStateName != _currentState->_stateName){
             _mode = FSMMode::CHANGE;
             _nextState = getNextState(_nextStateName);
+            std::cout << "[FSM] " << _currentState->_stateNameString
+                      << " -> " << _nextState->_stateNameString << std::endl;
         }
     }
-
-    if(_mode == FSMMode::CHANGE){
-        std::cout << "[FSM] " << _currentState->_stateNameString
-                  << " -> " << _nextState->_stateNameString << std::endl;
+    else if(_mode == FSMMode::CHANGE){
         _currentState->exit();
         _currentState = _nextState;
         _currentState->enter();
         _mode = FSMMode::NORMAL;
     }
 
-    _currentState->run();
     _ctrlComp->send();
 }
 
@@ -66,4 +65,3 @@ FSMState *FSM::getNextState(FSMStateName stateName){
         throw std::runtime_error("Invalid FSM state");
     }
 }
-
