@@ -42,6 +42,8 @@ class LeggedRobotCfg(BaseConfig):
         num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
+        # Linearly vary the probability of sampling a fully stationary command over training iterations.
+        zero_command_curriculum = None
         class ranges:
             lin_vel_x = [-1.0, 1.0] # min max [m/s]
             lin_vel_y = [-1.0, 1.0]   # min max [m/s]
@@ -147,9 +149,9 @@ class LeggedRobotCfg(BaseConfig):
             foot_impact_velocity = 0.
             feet_contact_without_cmd = 0.
             collision = -1.
-            feet_stumble = -0.0 
+            feet_stumble = -0.05
             action_rate = -0.01
-            action_smoothness = -0.01
+            action_smoothness = -0.005
             stand_still = -0.
             feet_regulation = -0.05
             hip_default = -0.5

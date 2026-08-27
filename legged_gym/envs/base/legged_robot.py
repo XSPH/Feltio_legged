@@ -39,6 +39,7 @@ class LeggedRobot(BaseTask):
         self.height_samples = None
         self.debug_viz = False
         self.init_done = False
+        self.training_iteration = 0
         self._parse_cfg(self.cfg)
         super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
 
@@ -204,9 +205,16 @@ class LeggedRobot(BaseTask):
             self.extras["episode"]["terrain_level"] = torch.mean(self.terrain_levels.float())
         if self.cfg.commands.curriculum:
             self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
+        if self.cfg.commands.zero_command_curriculum is not None:
+            self.extras["episode"]["zero_command_probability"] = self.zero_command_probability
         # send timeout info to the algorithm
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
+
+    def set_training_iteration(self, iteration):
+        """Update command curricula driven by the current policy iteration."""
+        self.training_iteration = iteration
+        self.zero_command_probability = self._get_zero_command_probability()
     
     def compute_reward(self):
         """ Compute rewards
@@ -397,9 +405,11 @@ class LeggedRobot(BaseTask):
         env_ids = (self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt)==0).nonzero(as_tuple=False).flatten()
         self._resample_commands(env_ids)
         if self.cfg.commands.heading_command:
-            forward = quat_apply(self.base_quat, self.forward_vec)
+            heading_env_ids = (~self.zero_command_mask).nonzero(as_tuple=False).flatten()
+            forward = quat_apply(self.base_quat[heading_env_ids], self.forward_vec[heading_env_ids])
             heading = torch.atan2(forward[:, 1], forward[:, 0])
-            self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
+            self.commands[heading_env_ids, 2] = torch.clip(0.5*wrap_to_pi(self.commands[heading_env_ids, 3] - heading), -1., 1.)
+            self.commands[self.zero_command_mask, 2] = 0.
 
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
@@ -421,6 +431,24 @@ class LeggedRobot(BaseTask):
 
         # set small commands to zero
         self.commands[env_ids, :2] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.2).unsqueeze(1)
+
+        # Sample explicit stationary intervals so the policy sees exact zero x/y/yaw commands.
+        self.zero_command_probability = self._get_zero_command_probability()
+        self.zero_command_mask[env_ids] = False
+        zero_mask = torch.rand(len(env_ids), device=self.device) < self.zero_command_probability
+        zero_env_ids = env_ids[zero_mask]
+        self.zero_command_mask[zero_env_ids] = True
+        self.commands[zero_env_ids, :3] = 0.
+
+    def _get_zero_command_probability(self):
+        curriculum = self.cfg.commands.zero_command_curriculum
+        if curriculum is None:
+            return 0.
+        start_iter = curriculum['start_iter']
+        end_iter = curriculum['end_iter']
+        progress = (self.training_iteration - start_iter) / (end_iter - start_iter)
+        progress = min(max(progress, 0.), 1.)
+        return (1. - progress) * curriculum['start_value'] + progress * curriculum['end_value']
 
     def _compute_torques(self, actions):
         """ Compute torques from actions.
@@ -613,6 +641,8 @@ class LeggedRobot(BaseTask):
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
+        self.zero_command_probability = self._get_zero_command_probability()
+        self.zero_command_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.feet_contact_time = torch.zeros_like(self.feet_air_time)
         self.feet_air_time_on_contact = torch.zeros_like(self.feet_air_time)

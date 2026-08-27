@@ -31,6 +31,10 @@ class GO2RoughCfg( LeggedRobotCfg ):
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 4
 
+    class commands( LeggedRobotCfg.commands ):
+        # 前 1500 次训练迭代将完全静止命令的采样概率从 0 线性增加到 10%。
+        zero_command_curriculum = {'start_iter': 0, 'end_iter': 1500, 'start_value': 0.0, 'end_value': 0.1}
+
     class asset( LeggedRobotCfg.asset ):
         # file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/go2/urdf/go2.urdf'
         file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/TOE_dog4.5/urdf/dog.urdf'
@@ -65,11 +69,11 @@ class GO2RoughCfg( LeggedRobotCfg ):
         # 髋外展关节镜像时反号，大腿和小腿关节同号。
         joint_mirror_signs = (-1.0, 1.0, 1.0)
         # 足端顺序沿用 feet_names；0/0.5 将两组对角腿错开半个周期。
-        phase_foot_trajectory_cycle_time = 0.4
+        phase_foot_trajectory_cycle_time = 0.6
         phase_foot_trajectory_phase_offsets = (0.0, 0.5, 0.5, 0.0)
         phase_foot_trajectory_stance_ratio = 0.5
         # 当前前后摆幅为 0，只约束摆动相的竖直抬脚高度。
-        phase_foot_trajectory_horizontal_span = 0.0
+        phase_foot_trajectory_horizontal_span = 0.06
         phase_foot_trajectory_swing_height = 0.08
         class scales( LeggedRobotCfg.rewards.scales ):
             torques = -1e-4
