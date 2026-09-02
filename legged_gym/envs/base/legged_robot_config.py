@@ -4,7 +4,7 @@ class LeggedRobotCfg(BaseConfig):
     class env:
         num_envs = 4096
         num_observations = 45
-        num_privileged_obs = 45+3+187+12 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
+        num_privileged_obs = 45+3+187+12+12+12 # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise 
         num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
@@ -202,7 +202,7 @@ class LeggedRobotCfg(BaseConfig):
             height_measurements = 5.0
         clip_observations = 100.
         clip_actions = 100.
-        contact_force_xy_range = [-50.0, 50.0]  # [N]
+        contact_force_xy_range = [-35.0, 35.0]  # [N]
         contact_force_z_range = [0.0, 150.0]    # [N]
 
 

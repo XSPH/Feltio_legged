@@ -253,12 +253,21 @@ class LeggedRobot(BaseTask):
                                     self.obs_buf,
                                     self.base_lin_vel * self.obs_scales.lin_vel,
                                     self.foot_contact_forces,
+                                    self.torques / self.torque_limits,  # motor torques (12,)
+                                    (self.last_dof_vel - self.dof_vel) / self.dt * 1e-4,  # motor accelerations (12,)
                                     heights
                                     ), dim=-1)
         # add noise if needed
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
 
+        # 查看单脚接触力的归一化范围
+        # debug_env = 0
+        # debug_forces = self.foot_contact_forces[debug_env].view(-1, 3).detach().cpu().numpy()
+        # for debug_name, debug_force in zip(self.feet_names, debug_forces):
+        #     print(f"[env {debug_env}] {debug_name} contact force (normalized): "
+        #           f"x={debug_force[0]:.3f} y={debug_force[1]:.3f} z={debug_force[2]:.3f}")
+            
     def _get_normalized_foot_contact_forces(self):
         """Return clipped foot contact forces in the base frame."""
         self.contact_force_xy_scale, self.contact_force_xy_shift = get_scale_shift(self.cfg.normalization.contact_force_xy_range)
