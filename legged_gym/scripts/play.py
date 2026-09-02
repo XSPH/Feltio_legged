@@ -108,7 +108,7 @@ def play(args):
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Aug27_12-31-08_/model_6000.pt"
+    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Sep01_17-06-05_/model_20000.pt"
     if not os.path.isfile(policy_path):
         raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False

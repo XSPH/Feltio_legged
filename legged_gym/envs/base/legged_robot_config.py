@@ -140,7 +140,7 @@ class LeggedRobotCfg(BaseConfig):
             dof_acc = -2.5e-7
             dof_power = -2e-5
             base_height = -1.
-            feet_air_time = 0.
+            feet_air_time = 1.
             # 新增奖励项的默认权重均为 0，由具体机器人配置按需开启。
             feet_gait = 0.
             phase_foot_trajectory_exp = 0.
@@ -149,18 +149,18 @@ class LeggedRobotCfg(BaseConfig):
             foot_impact_velocity = 0.
             feet_contact_without_cmd = 0.
             collision = -1.
-            feet_stumble = -0.05
+            stumble = -0.1
             action_rate = -0.01
-            action_smoothness = -0.005
+            action_smoothness = -0.01
             stand_still = -0.
             feet_regulation = -0.05
-            hip_default = -0.5
+            hip_default = -0.1
 
 
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
         soft_dof_pos_limit = 0.8 # percentage of urdf limits, values above this limit are penalized
-        soft_dof_vel_limit = 0.9
+        soft_dof_vel_limit = 0.8
         soft_torque_limit = 0.9
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized

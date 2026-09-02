@@ -248,6 +248,7 @@ class LeggedRobot(BaseTask):
 
         heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights,-1.,1.) * self.obs_scales.height_measurements
         self.foot_contact_forces = self._get_normalized_foot_contact_forces()
+
         self.privileged_obs_buf = torch.cat((
                                     self.obs_buf,
                                     self.base_lin_vel * self.obs_scales.lin_vel,
