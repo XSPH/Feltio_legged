@@ -971,7 +971,7 @@
     name="RR_foot">
     <inertial>
       <origin
-        xyz="-0.0218124760592537 -4.53967130253918E-06 -0.0362688546339521"
+        xyz="-0.00637750247419699 4.44527681164875E-07 -0.00786858131084245"
         rpy="0 0 0" />
       <mass value="0.032191" />
       <inertia
@@ -980,7 +980,7 @@
     </inertial>
     <visual>
       <origin
-        xyz="-0.0158 0 -0.028"
+        xyz="0 0 0"
         rpy="0 0 0" />
       <geometry>
         <mesh
@@ -993,7 +993,7 @@
       </material>
     </visual>
     <collision>
-      <origin rpy="0 0 0" xyz="-0.0158 0 -0.028" />
+      <origin rpy="0 0 0" xyz="-0.002 0 0" />
       <geometry>
         <sphere radius="0.022" />
       </geometry>
@@ -1003,7 +1003,7 @@
     name="RR_foot_joint"
     type="fixed" dont_collapse="true">
     <origin
-      xyz="0.016139 0 -0.18278"
+      xyz="0.00070371 0 -0.21118"
       rpy="0 0 0" />
     <parent
       link="RR_calf" />

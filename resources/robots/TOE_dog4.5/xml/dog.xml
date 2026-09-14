@@ -70,7 +70,7 @@
           <geom size="0.011 0.0325" pos="0.0198362 0 -0.138388" quat="0.999688 0 0.0249974 0" type="capsule" class="collision"/>
           <geom size="0.0155 0.015" pos="0.0134257 0 -0.182499" quat="0.965093 0 0.261909 0" type="capsule" class="collision"/>
           <geom pos="0.00070371 0 -0.21118" quat="1 0 0 0" type="mesh" density="0" rgba="1 1 1 1" mesh="foot" class="visual"/>
-          <geom size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
+          <geom name="FL_foot" size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
         </body>
       </body>
     </body>
@@ -93,7 +93,7 @@
           <geom size="0.011 0.0325" pos="0.020336 0 -0.1384" quat="0.999688 0 0.0249974 0" type="capsule" class="collision"/>
           <geom size="0.0155 0.015" pos="0.0161382 0 -0.182777" quat="0.971338 0 0.237703 0" type="capsule" class="collision"/>
           <geom pos="0.00070371 0 -0.21118" quat="1 0 0 0" type="mesh" density="0" rgba="1 1 1 1" mesh="foot" class="visual"/>
-          <geom size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
+          <geom name="FR_foot" size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
         </body>
       </body>
     </body>
@@ -116,7 +116,7 @@
           <geom size="0.011 0.0325" pos="0.020336 0 -0.1384" quat="0.999688 0 0.0249974 0" type="capsule" class="collision"/>
           <geom size="0.0155 0.015" pos="0.0161382 0 -0.182777" quat="0.971338 0 0.237703 0" type="capsule" class="collision"/>
           <geom pos="0.00070371 0 -0.21118" quat="1 0 0 0" type="mesh" density="0" rgba="1 1 1 1" mesh="foot" class="visual"/>
-          <geom size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
+          <geom name="RL_foot" size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
         </body>
       </body>
     </body>
@@ -138,8 +138,8 @@
           <geom size="0.012 0.06" pos="0.008 0 -0.05" quat="0.994493 0 -0.104807 0" type="capsule" rgba="0.752941 0.752941 0.752941 1" class="collision"/>
           <geom size="0.011 0.0325" pos="0.020336 0 -0.1384" quat="0.999688 0 0.0249974 0" type="capsule" class="collision"/>
           <geom size="0.0155 0.015" pos="0.0161382 0 -0.182777" quat="0.971338 0 0.237703 0" type="capsule" class="collision"/>
-          <geom pos="0.000339 0 -0.21078" quat="1 0 0 0" type="mesh" density="0" rgba="1 1 1 1" mesh="foot" class="visual"/>
-          <geom size="0.022" pos="0.000339 0 -0.21078" rgba="1 1 1 1" class="foot"/>
+          <geom pos="0.00070371 0 -0.21118" quat="1 0 0 0" type="mesh" density="0" rgba="1 1 1 1" mesh="foot" class="visual"/>
+          <geom name="RR_foot" size="0.022" pos="-0.00129629 0 -0.21118" rgba="1 1 1 1" class="foot"/>
         </body>
       </body>
     </body>
