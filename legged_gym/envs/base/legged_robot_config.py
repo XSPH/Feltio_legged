@@ -150,6 +150,7 @@ class LeggedRobotCfg(BaseConfig):
             feet_contact_without_cmd = 0.
             collision = -1.
             stumble = -0.1
+            feet_stumble = -0.1
             action_rate = -0.01
             action_smoothness = -0.01
             stand_still = -0.
