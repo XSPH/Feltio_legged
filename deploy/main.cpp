@@ -1,11 +1,16 @@
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 #include <GLFW/glfw3.h>
@@ -31,8 +36,21 @@ bool g_middle_button = false;
 bool g_right_button = false;
 double g_last_x = 0.0;
 double g_last_y = 0.0;
+double g_next_telemetry_print_time = 0.0;
 std::atomic<bool> g_reset_requested{false};
 std::atomic<UserCommand> g_keyboard_command{UserCommand::NONE};
+
+constexpr std::array<const char*, 4> kFootGeomNames = {
+    "FL_foot", "FR_foot", "RL_foot", "RR_foot",
+};
+std::array<int, kFootGeomNames.size()> g_foot_geom_ids{};
+
+struct FootTelemetry {
+    std::array<mjtNum, 3> position{};
+    std::array<mjtNum, 3> velocity{};
+    std::array<mjtNum, 3> contact_force{};
+};
+using FootTelemetryArray = std::array<FootTelemetry, kFootGeomNames.size()>;
 
 struct KeyboardMovement {
     bool forward = false;
@@ -236,12 +254,118 @@ void initializePose(const mjModel* model, mjData* data, const DeployConfig& conf
     mj_forward(model, data);
 }
 
+void initializeFootGeoms(const mjModel* model) {
+    for (std::size_t i = 0; i < kFootGeomNames.size(); ++i) {
+        g_foot_geom_ids[i] = mj_name2id(model, mjOBJ_GEOM, kFootGeomNames[i]);
+        if (g_foot_geom_ids[i] < 0) {
+            throw std::runtime_error(std::string("MuJoCo foot geom not found: ") +
+                                     kFootGeomNames[i]);
+        }
+    }
+}
+
+FootTelemetryArray getFootTelemetry() {
+    FootTelemetryArray telemetry{};
+    for (std::size_t foot = 0; foot < telemetry.size(); ++foot) {
+        const int geom_id = g_foot_geom_ids[foot];
+        mju_copy3(telemetry[foot].position.data(), g_data->geom_xpos + 3 * geom_id);
+        mjtNum spatial_velocity[6]{};
+        mj_objectVelocity(g_model, g_data, mjOBJ_GEOM, geom_id, spatial_velocity, 0);
+        mju_copy3(telemetry[foot].velocity.data(), spatial_velocity + 3);
+    }
+
+    for (int contact_id = 0; contact_id < g_data->ncon; ++contact_id) {
+        const mjContact& contact = g_data->contact[contact_id];
+        mjtNum contact_force[6]{};
+        mj_contactForce(g_model, g_data, contact_id, contact_force);
+        mjtNum world_force[3]{};
+        mju_mulMatTVec(world_force, contact.frame, contact_force, 3, 3);
+        for (std::size_t foot = 0; foot < telemetry.size(); ++foot) {
+            if (contact.geom[0] == g_foot_geom_ids[foot]) {
+                mju_subFrom3(telemetry[foot].contact_force.data(), world_force);
+            }
+            if (contact.geom[1] == g_foot_geom_ids[foot]) {
+                mju_addTo3(telemetry[foot].contact_force.data(), world_force);
+            }
+        }
+    }
+    return telemetry;
+}
+
+void addVectorArrow(const std::array<mjtNum, 3>& origin,
+                    const std::array<mjtNum, 3>& vector, mjtNum scale,
+                    const float color[4]) {
+    const mjtNum magnitude = mju_norm3(vector.data());
+    if (magnitude < 1.0e-6 || g_scene.ngeom >= g_scene.maxgeom) {
+        return;
+    }
+    constexpr mjtNum max_length = 0.35;
+    const mjtNum arrow_scale = std::min(scale, max_length / magnitude);
+    mjtNum endpoint[3];
+    mju_scl3(endpoint, vector.data(), arrow_scale);
+    mju_addTo3(endpoint, origin.data());
+
+    mjvGeom& arrow = g_scene.geoms[g_scene.ngeom++];
+    mjv_initGeom(&arrow, mjGEOM_ARROW, nullptr, nullptr, nullptr, color);
+    mjv_connector(&arrow, mjGEOM_ARROW, 0.006, origin.data(), endpoint);
+}
+
+void addFootTelemetryGeoms(const FootTelemetryArray& telemetry) {
+    constexpr mjtNum velocity_scale = 0.15;
+    constexpr mjtNum force_scale = 0.002;
+    constexpr float velocity_color[4] = {0.1F, 0.5F, 1.0F, 1.0F};
+    constexpr float force_color[4] = {1.0F, 0.35F, 0.05F, 1.0F};
+    for (const auto& value : telemetry) {
+        addVectorArrow(value.position, value.velocity, velocity_scale, velocity_color);
+        addVectorArrow(value.position, value.contact_force, force_scale, force_color);
+    }
+}
+
+void drawFootTelemetryOverlay(mjrRect viewport, const FootTelemetryArray& telemetry) {
+    std::ostringstream overlay;
+    overlay << std::fixed << std::setprecision(2)
+            << "Foot endpoint telemetry (world frame)\n"
+            << "blue: velocity [m/s], orange: contact force [N]\n";
+    for (std::size_t foot = 0; foot < telemetry.size(); ++foot) {
+        const auto& value = telemetry[foot];
+        overlay << kFootGeomNames[foot] << "  v "
+                << value.velocity[0] << ' ' << value.velocity[1] << ' '
+                << value.velocity[2] << "  |v| " << mju_norm3(value.velocity.data())
+                << "\n    F " << value.contact_force[0] << ' '
+                << value.contact_force[1] << ' ' << value.contact_force[2]
+                << "  |F| " << mju_norm3(value.contact_force.data()) << '\n';
+    }
+    mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, overlay.str().c_str(), "",
+                &g_context);
+}
+
+void printFootTelemetry(const FootTelemetryArray& telemetry) {
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(3) << "[feet] t=" << g_data->time;
+    for (std::size_t foot = 0; foot < telemetry.size(); ++foot) {
+        const auto& value = telemetry[foot];
+        output << " | " << kFootGeomNames[foot] << " v=("
+               << value.velocity[0] << ',' << value.velocity[1] << ','
+               << value.velocity[2] << ") m/s F=(" << value.contact_force[0]
+               << ',' << value.contact_force[1] << ',' << value.contact_force[2]
+               << ") N";
+    }
+    std::cout << output.str() << std::endl;
+}
+
 void render(GLFWwindow* window) {
     mjrRect viewport{0, 0, 0, 0};
     glfwGetFramebufferSize(window, &viewport.width, &viewport.height);
     mjv_updateScene(g_model, g_data, &g_option, &g_perturb, &g_camera, mjCAT_ALL,
                     &g_scene);
+    const auto telemetry = getFootTelemetry();
+    if (g_data->time + 1.0e-9 >= g_next_telemetry_print_time) {
+        printFootTelemetry(telemetry);
+        g_next_telemetry_print_time = g_data->time + 0.1;
+    }
+    addFootTelemetryGeoms(telemetry);
     mjr_render(viewport, &g_scene, &g_context);
+    drawFootTelemetryOverlay(viewport, telemetry);
     glfwSwapBuffers(window);
 }
 
@@ -266,6 +390,7 @@ int main() {
             throw std::runtime_error("Failed to allocate MuJoCo data");
         }
         initializePose(g_model, g_data, config);
+        initializeFootGeoms(g_model);
 
         if (!glfwInit()) {
             throw std::runtime_error("Failed to initialize GLFW");
@@ -327,6 +452,7 @@ int main() {
                 initializePose(g_model, g_data, config);
                 ctrlFrame.reset();
                 next_render_time = g_data->time;
+                g_next_telemetry_print_time = g_data->time;
                 wall_deadline = std::chrono::steady_clock::now();
             }
             const UserCommand keyboard_command =

@@ -40,6 +40,7 @@ class LeggedRobot(BaseTask):
         self.debug_viz = False
         self.init_done = False
         self.training_iteration = 0
+        self.reward_curriculum_scales = {}
         self._parse_cfg(self.cfg)
         super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
 
@@ -47,6 +48,7 @@ class LeggedRobot(BaseTask):
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
         self._init_buffers()
         self._prepare_reward_function()
+        self._update_reward_curriculum()
         self.init_done = True
 
     def step(self, actions):
@@ -207,14 +209,27 @@ class LeggedRobot(BaseTask):
             self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
         if self.cfg.commands.zero_command_curriculum is not None:
             self.extras["episode"]["zero_command_probability"] = self.zero_command_probability
+        for name, scale in self.reward_curriculum_scales.items():
+            self.extras["episode"]["curriculum_scale_" + name] = scale
         # send timeout info to the algorithm
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
 
     def set_training_iteration(self, iteration):
-        """Update command curricula driven by the current policy iteration."""
+        """Update curricula driven by the current policy iteration."""
         self.training_iteration = iteration
         self.zero_command_probability = self._get_zero_command_probability()
+        self._update_reward_curriculum()
+
+    def _update_reward_curriculum(self):
+        for curriculum in self.cfg.rewards.curriculum_rewards:
+            name = curriculum['reward_name']
+            start_iter = curriculum['start_iter']
+            end_iter = curriculum['end_iter']
+            progress = (self.training_iteration - start_iter) / (end_iter - start_iter)
+            progress = min(max(progress, 0.), 1.)
+            self.reward_curriculum_scales[name] = (
+                (1. - progress) * curriculum['start_value'] + progress * curriculum['end_value'])
     
     def compute_reward(self):
         """ Compute rewards
@@ -225,6 +240,7 @@ class LeggedRobot(BaseTask):
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
+            rew *= self.reward_curriculum_scales.get(name, 1.)
             self.rew_buf += rew
             self.episode_sums[name] += rew
         if self.cfg.rewards.only_positive_rewards:
@@ -667,6 +683,13 @@ class LeggedRobot(BaseTask):
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
+            x_points = self.height_points[0, :, 0]
+            y_points = self.height_points[0, :, 1]
+            x_mask = (x_points >= -0.2) & (x_points <= 0.2)
+            y_mask = (y_points >= -0.15) & (y_points <= 0.15)
+            self.base_height_scan_mask = (x_mask & y_mask).float()
+            self.num_base_height_scan_points = self.base_height_scan_mask.sum()
+            assert self.num_base_height_scan_points > 0, "No height scan points within the base height area."
         self.measured_heights = 0
 
         # joint positions offsets and PD gains
@@ -1012,7 +1035,12 @@ class LeggedRobot(BaseTask):
 
     def _reward_base_height(self):
         # Penalize base height away from target
-        base_height = torch.mean(self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
+        if self.cfg.terrain.measure_heights:
+            masked_heights = self.measured_heights * self.base_height_scan_mask.unsqueeze(0)
+            estimated_ground_z = masked_heights.sum(dim=1) / self.num_base_height_scan_points
+            base_height = self.root_states[:, 2] - estimated_ground_z
+        else:
+            base_height = self.root_states[:, 2]
         # print("base height", base_height.mean().item())
         return torch.square(base_height - self.cfg.rewards.base_height_target)
     
@@ -1118,6 +1146,9 @@ class LeggedRobot(BaseTask):
         """统计首次触地时超过阈值的向下速度，配合负权重减轻落脚冲击。"""
         # 低于 impact_speed_threshold 的轻微向下速度不计入，超出部分使用平方惩罚。
         downward_speed = torch.clamp(-self.foot_velocities[:, :, 2] - self.cfg.rewards.impact_speed_threshold, min=0.)
+        # debug_env = 0
+        # for name, value in zip(self.feet_names, downward_speed[debug_env]):
+        #     print(f"[env {debug_env}] {name} downward_speed={value.item():.3f}")
         return torch.sum(self.first_foot_contacts.float() * torch.square(downward_speed), dim=1)
 
     def _reward_feet_contact_without_cmd(self):

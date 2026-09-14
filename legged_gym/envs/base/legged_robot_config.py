@@ -94,7 +94,7 @@ class LeggedRobotCfg(BaseConfig):
 
     class domain_rand:
         randomize_friction = True
-        friction_range = [0.2, 1.25]
+        friction_range = [0.2, 2.25]
 
         randomize_base_mass = True
         added_mass_range = [-1., 1.]
@@ -116,7 +116,7 @@ class LeggedRobotCfg(BaseConfig):
         randomize_motor_zero_offset = True
         motor_zero_offset_range = [-0.035, 0.035]
 
-        randomize_motor_strength = False # (Env reset)
+        randomize_motor_strength = True # (Env reset)
         motor_strength_range = [0.9, 1.1]
 
         ### Environment step ###
@@ -154,7 +154,7 @@ class LeggedRobotCfg(BaseConfig):
             action_smoothness = -0.01
             stand_still = -0.
             feet_regulation = -0.05
-            hip_default = -0.1
+            hip_default = -0.4
 
 
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
@@ -164,6 +164,8 @@ class LeggedRobotCfg(BaseConfig):
         soft_torque_limit = 0.9
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized
+        # 按训练迭代线性调整指定奖励的倍率；具体任务按需启用。
+        curriculum_rewards = []
         # 足端法向力超过该值即视为接触；command_threshold 用于区分静止与运动指令。
         foot_contact_force_threshold = 1.0
         command_threshold = 0.1
@@ -180,7 +182,7 @@ class LeggedRobotCfg(BaseConfig):
         joint_mirror_signs = ()
 
         # 首次触地时，仅惩罚超过该阈值的向下速度。
-        impact_speed_threshold = 0.1
+        impact_speed_threshold = 0.5
 
         # 相位足端轨迹：std 控制指数奖励宽容度，cycle_time 和 stance_ratio 定义步态周期。
         phase_foot_trajectory_std = 0.12
