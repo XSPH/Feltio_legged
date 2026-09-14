@@ -87,9 +87,9 @@ class GO2RoughCfg( LeggedRobotCfg ):
             feet_gait =  0 # 0.1
             phase_foot_trajectory_exp = 0 # 0.2
             # 负权重项：惩罚关节不对称、支撑脚打滑和过大的落脚速度。
-            joint_mirror = -0.05
+            joint_mirror = -0.0
             feet_slide = -0.05
-            foot_impact_velocity = -0.1
+            foot_impact_velocity = -0.0
             # 该项使用正权重，零指令时按落地脚数量奖励稳定站立。
             feet_contact_without_cmd = 0.05 #0.1
 
