@@ -1,0 +1,229 @@
+<mujoco model="TOE_dog4.5 narrow stairs 25cm">
+  <include file="dog.xml" />
+  <!-- Eight risers per side, 0.25 m tread depth plus 0.03 m nosing, 0.035 m nosing height. -->
+  <statistic center="16.5 0 0.8" extent="18" />
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <global azimuth="-130" elevation="-20" />
+  </visual>
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300" />
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.0" />
+    <texture name="tex_height_5cm" type="2d" file="./imgs/height_5cm.png" />
+    <material name="mat_height_5cm" texture="tex_height_5cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_8cm" type="2d" file="./imgs/height_8cm.png" />
+    <material name="mat_height_8cm" texture="tex_height_8cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_11cm" type="2d" file="./imgs/height_11cm.png" />
+    <material name="mat_height_11cm" texture="tex_height_11cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_14cm" type="2d" file="./imgs/height_14cm.png" />
+    <material name="mat_height_14cm" texture="tex_height_14cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_17cm" type="2d" file="./imgs/height_17cm.png" />
+    <material name="mat_height_17cm" texture="tex_height_17cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_20cm" type="2d" file="./imgs/height_20cm.png" />
+    <material name="mat_height_20cm" texture="tex_height_20cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+  </asset>
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1" directional="true" />
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" />
+    <!-- 5 cm riser group. -->
+    <geom name="height_label_5cm" pos="0.9 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_5cm" />
+    <geom name="stair_5cm_up_1" pos="1.525 0 0.025" type="box" size="0.125 0.75 0.025" />
+    <geom name="stair_nosing_5cm_up_1" pos="1.3855 0 0.0325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_2" pos="1.775 0 0.05" type="box" size="0.125 0.75 0.05" />
+    <geom name="stair_nosing_5cm_up_2" pos="1.6355 0 0.0825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_3" pos="2.025 0 0.075" type="box" size="0.125 0.75 0.075" />
+    <geom name="stair_nosing_5cm_up_3" pos="1.8855 0 0.1325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_4" pos="2.275 0 0.1" type="box" size="0.125 0.75 0.1" />
+    <geom name="stair_nosing_5cm_up_4" pos="2.1355 0 0.1825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_5" pos="2.525 0 0.125" type="box" size="0.125 0.75 0.125" />
+    <geom name="stair_nosing_5cm_up_5" pos="2.3855 0 0.2325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_6" pos="2.775 0 0.15" type="box" size="0.125 0.75 0.15" />
+    <geom name="stair_nosing_5cm_up_6" pos="2.6355 0 0.2825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_up_7" pos="3.025 0 0.175" type="box" size="0.125 0.75 0.175" />
+    <geom name="stair_nosing_5cm_up_7" pos="2.8855 0 0.3325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_platform" pos="3.65 0 0.2" type="box" size="0.5 0.75 0.2" />
+    <geom name="stair_nosing_5cm_platform_up" pos="3.1355 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_5cm_platform_down" pos="4.1645 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_7" pos="4.275 0 0.175" type="box" size="0.125 0.75 0.175" />
+    <geom name="stair_nosing_5cm_down_7" pos="4.4145 0 0.3325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_6" pos="4.525 0 0.15" type="box" size="0.125 0.75 0.15" />
+    <geom name="stair_nosing_5cm_down_6" pos="4.6645 0 0.2825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_5" pos="4.775 0 0.125" type="box" size="0.125 0.75 0.125" />
+    <geom name="stair_nosing_5cm_down_5" pos="4.9145 0 0.2325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_4" pos="5.025 0 0.1" type="box" size="0.125 0.75 0.1" />
+    <geom name="stair_nosing_5cm_down_4" pos="5.1645 0 0.1825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_3" pos="5.275 0 0.075" type="box" size="0.125 0.75 0.075" />
+    <geom name="stair_nosing_5cm_down_3" pos="5.4145 0 0.1325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_2" pos="5.525 0 0.05" type="box" size="0.125 0.75 0.05" />
+    <geom name="stair_nosing_5cm_down_2" pos="5.6645 0 0.0825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_5cm_down_1" pos="5.775 0 0.025" type="box" size="0.125 0.75 0.025" />
+    <geom name="stair_nosing_5cm_down_1" pos="5.9145 0 0.0325" type="box" size="0.0155 0.75 0.0175" />
+    <!-- 8 cm riser group. -->
+    <geom name="height_label_8cm" pos="6.2 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_8cm" />
+    <geom name="stair_8cm_up_1" pos="6.825 0 0.04" type="box" size="0.125 0.75 0.04" />
+    <geom name="stair_nosing_8cm_up_1" pos="6.6855 0 0.0625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_2" pos="7.075 0 0.08" type="box" size="0.125 0.75 0.08" />
+    <geom name="stair_nosing_8cm_up_2" pos="6.9355 0 0.1425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_3" pos="7.325 0 0.12" type="box" size="0.125 0.75 0.12" />
+    <geom name="stair_nosing_8cm_up_3" pos="7.1855 0 0.2225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_4" pos="7.575 0 0.16" type="box" size="0.125 0.75 0.16" />
+    <geom name="stair_nosing_8cm_up_4" pos="7.4355 0 0.3025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_5" pos="7.825 0 0.2" type="box" size="0.125 0.75 0.2" />
+    <geom name="stair_nosing_8cm_up_5" pos="7.6855 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_6" pos="8.075 0 0.24" type="box" size="0.125 0.75 0.24" />
+    <geom name="stair_nosing_8cm_up_6" pos="7.9355 0 0.4625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_up_7" pos="8.325 0 0.28" type="box" size="0.125 0.75 0.28" />
+    <geom name="stair_nosing_8cm_up_7" pos="8.1855 0 0.5425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_platform" pos="8.95 0 0.32" type="box" size="0.5 0.75 0.32" />
+    <geom name="stair_nosing_8cm_platform_up" pos="8.4355 0 0.6225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_8cm_platform_down" pos="9.4645 0 0.6225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_7" pos="9.575 0 0.28" type="box" size="0.125 0.75 0.28" />
+    <geom name="stair_nosing_8cm_down_7" pos="9.7145 0 0.5425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_6" pos="9.825 0 0.24" type="box" size="0.125 0.75 0.24" />
+    <geom name="stair_nosing_8cm_down_6" pos="9.9645 0 0.4625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_5" pos="10.075 0 0.2" type="box" size="0.125 0.75 0.2" />
+    <geom name="stair_nosing_8cm_down_5" pos="10.2145 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_4" pos="10.325 0 0.16" type="box" size="0.125 0.75 0.16" />
+    <geom name="stair_nosing_8cm_down_4" pos="10.4645 0 0.3025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_3" pos="10.575 0 0.12" type="box" size="0.125 0.75 0.12" />
+    <geom name="stair_nosing_8cm_down_3" pos="10.7145 0 0.2225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_2" pos="10.825 0 0.08" type="box" size="0.125 0.75 0.08" />
+    <geom name="stair_nosing_8cm_down_2" pos="10.9645 0 0.1425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_8cm_down_1" pos="11.075 0 0.04" type="box" size="0.125 0.75 0.04" />
+    <geom name="stair_nosing_8cm_down_1" pos="11.2145 0 0.0625" type="box" size="0.0155 0.75 0.0175" />
+    <!-- 11 cm riser group. -->
+    <geom name="height_label_11cm" pos="11.5 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_11cm" />
+    <geom name="stair_11cm_up_1" pos="12.125 0 0.055" type="box" size="0.125 0.75 0.055" />
+    <geom name="stair_nosing_11cm_up_1" pos="11.9855 0 0.0925" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_2" pos="12.375 0 0.11" type="box" size="0.125 0.75 0.11" />
+    <geom name="stair_nosing_11cm_up_2" pos="12.2355 0 0.2025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_3" pos="12.625 0 0.165" type="box" size="0.125 0.75 0.165" />
+    <geom name="stair_nosing_11cm_up_3" pos="12.4855 0 0.3125" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_4" pos="12.875 0 0.22" type="box" size="0.125 0.75 0.22" />
+    <geom name="stair_nosing_11cm_up_4" pos="12.7355 0 0.4225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_5" pos="13.125 0 0.275" type="box" size="0.125 0.75 0.275" />
+    <geom name="stair_nosing_11cm_up_5" pos="12.9855 0 0.5325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_6" pos="13.375 0 0.33" type="box" size="0.125 0.75 0.33" />
+    <geom name="stair_nosing_11cm_up_6" pos="13.2355 0 0.6425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_up_7" pos="13.625 0 0.385" type="box" size="0.125 0.75 0.385" />
+    <geom name="stair_nosing_11cm_up_7" pos="13.4855 0 0.7525" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_platform" pos="14.25 0 0.44" type="box" size="0.5 0.75 0.44" />
+    <geom name="stair_nosing_11cm_platform_up" pos="13.7355 0 0.8625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_11cm_platform_down" pos="14.7645 0 0.8625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_7" pos="14.875 0 0.385" type="box" size="0.125 0.75 0.385" />
+    <geom name="stair_nosing_11cm_down_7" pos="15.0145 0 0.7525" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_6" pos="15.125 0 0.33" type="box" size="0.125 0.75 0.33" />
+    <geom name="stair_nosing_11cm_down_6" pos="15.2645 0 0.6425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_5" pos="15.375 0 0.275" type="box" size="0.125 0.75 0.275" />
+    <geom name="stair_nosing_11cm_down_5" pos="15.5145 0 0.5325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_4" pos="15.625 0 0.22" type="box" size="0.125 0.75 0.22" />
+    <geom name="stair_nosing_11cm_down_4" pos="15.7645 0 0.4225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_3" pos="15.875 0 0.165" type="box" size="0.125 0.75 0.165" />
+    <geom name="stair_nosing_11cm_down_3" pos="16.0145 0 0.3125" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_2" pos="16.125 0 0.11" type="box" size="0.125 0.75 0.11" />
+    <geom name="stair_nosing_11cm_down_2" pos="16.2645 0 0.2025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_11cm_down_1" pos="16.375 0 0.055" type="box" size="0.125 0.75 0.055" />
+    <geom name="stair_nosing_11cm_down_1" pos="16.5145 0 0.0925" type="box" size="0.0155 0.75 0.0175" />
+    <!-- 14 cm riser group. -->
+    <geom name="height_label_14cm" pos="16.8 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_14cm" />
+    <geom name="stair_14cm_up_1" pos="17.425 0 0.07" type="box" size="0.125 0.75 0.07" />
+    <geom name="stair_nosing_14cm_up_1" pos="17.2855 0 0.1225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_2" pos="17.675 0 0.14" type="box" size="0.125 0.75 0.14" />
+    <geom name="stair_nosing_14cm_up_2" pos="17.5355 0 0.2625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_3" pos="17.925 0 0.21" type="box" size="0.125 0.75 0.21" />
+    <geom name="stair_nosing_14cm_up_3" pos="17.7855 0 0.4025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_4" pos="18.175 0 0.28" type="box" size="0.125 0.75 0.28" />
+    <geom name="stair_nosing_14cm_up_4" pos="18.0355 0 0.5425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_5" pos="18.425 0 0.35" type="box" size="0.125 0.75 0.35" />
+    <geom name="stair_nosing_14cm_up_5" pos="18.2855 0 0.6825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_6" pos="18.675 0 0.42" type="box" size="0.125 0.75 0.42" />
+    <geom name="stair_nosing_14cm_up_6" pos="18.5355 0 0.8225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_up_7" pos="18.925 0 0.49" type="box" size="0.125 0.75 0.49" />
+    <geom name="stair_nosing_14cm_up_7" pos="18.7855 0 0.9625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_platform" pos="19.55 0 0.56" type="box" size="0.5 0.75 0.56" />
+    <geom name="stair_nosing_14cm_platform_up" pos="19.0355 0 1.1025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_14cm_platform_down" pos="20.0645 0 1.1025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_7" pos="20.175 0 0.49" type="box" size="0.125 0.75 0.49" />
+    <geom name="stair_nosing_14cm_down_7" pos="20.3145 0 0.9625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_6" pos="20.425 0 0.42" type="box" size="0.125 0.75 0.42" />
+    <geom name="stair_nosing_14cm_down_6" pos="20.5645 0 0.8225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_5" pos="20.675 0 0.35" type="box" size="0.125 0.75 0.35" />
+    <geom name="stair_nosing_14cm_down_5" pos="20.8145 0 0.6825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_4" pos="20.925 0 0.28" type="box" size="0.125 0.75 0.28" />
+    <geom name="stair_nosing_14cm_down_4" pos="21.0645 0 0.5425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_3" pos="21.175 0 0.21" type="box" size="0.125 0.75 0.21" />
+    <geom name="stair_nosing_14cm_down_3" pos="21.3145 0 0.4025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_2" pos="21.425 0 0.14" type="box" size="0.125 0.75 0.14" />
+    <geom name="stair_nosing_14cm_down_2" pos="21.5645 0 0.2625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_14cm_down_1" pos="21.675 0 0.07" type="box" size="0.125 0.75 0.07" />
+    <geom name="stair_nosing_14cm_down_1" pos="21.8145 0 0.1225" type="box" size="0.0155 0.75 0.0175" />
+    <!-- 17 cm riser group. -->
+    <geom name="height_label_17cm" pos="22.1 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_17cm" />
+    <geom name="stair_17cm_up_1" pos="22.725 0 0.085" type="box" size="0.125 0.75 0.085" />
+    <geom name="stair_nosing_17cm_up_1" pos="22.5855 0 0.1525" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_2" pos="22.975 0 0.17" type="box" size="0.125 0.75 0.17" />
+    <geom name="stair_nosing_17cm_up_2" pos="22.8355 0 0.3225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_3" pos="23.225 0 0.255" type="box" size="0.125 0.75 0.255" />
+    <geom name="stair_nosing_17cm_up_3" pos="23.0855 0 0.4925" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_4" pos="23.475 0 0.34" type="box" size="0.125 0.75 0.34" />
+    <geom name="stair_nosing_17cm_up_4" pos="23.3355 0 0.6625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_5" pos="23.725 0 0.425" type="box" size="0.125 0.75 0.425" />
+    <geom name="stair_nosing_17cm_up_5" pos="23.5855 0 0.8325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_6" pos="23.975 0 0.51" type="box" size="0.125 0.75 0.51" />
+    <geom name="stair_nosing_17cm_up_6" pos="23.8355 0 1.0025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_up_7" pos="24.225 0 0.595" type="box" size="0.125 0.75 0.595" />
+    <geom name="stair_nosing_17cm_up_7" pos="24.0855 0 1.1725" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_platform" pos="24.85 0 0.68" type="box" size="0.5 0.75 0.68" />
+    <geom name="stair_nosing_17cm_platform_up" pos="24.3355 0 1.3425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_17cm_platform_down" pos="25.3645 0 1.3425" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_7" pos="25.475 0 0.595" type="box" size="0.125 0.75 0.595" />
+    <geom name="stair_nosing_17cm_down_7" pos="25.6145 0 1.1725" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_6" pos="25.725 0 0.51" type="box" size="0.125 0.75 0.51" />
+    <geom name="stair_nosing_17cm_down_6" pos="25.8645 0 1.0025" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_5" pos="25.975 0 0.425" type="box" size="0.125 0.75 0.425" />
+    <geom name="stair_nosing_17cm_down_5" pos="26.1145 0 0.8325" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_4" pos="26.225 0 0.34" type="box" size="0.125 0.75 0.34" />
+    <geom name="stair_nosing_17cm_down_4" pos="26.3645 0 0.6625" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_3" pos="26.475 0 0.255" type="box" size="0.125 0.75 0.255" />
+    <geom name="stair_nosing_17cm_down_3" pos="26.6145 0 0.4925" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_2" pos="26.725 0 0.17" type="box" size="0.125 0.75 0.17" />
+    <geom name="stair_nosing_17cm_down_2" pos="26.8645 0 0.3225" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_17cm_down_1" pos="26.975 0 0.085" type="box" size="0.125 0.75 0.085" />
+    <geom name="stair_nosing_17cm_down_1" pos="27.1145 0 0.1525" type="box" size="0.0155 0.75 0.0175" />
+    <!-- 20 cm riser group. -->
+    <geom name="height_label_20cm" pos="27.4 0 0.002" type="box" size="0.4 0.14 0.0001" contype="0" conaffinity="0" group="1" material="mat_height_20cm" />
+    <geom name="stair_20cm_up_1" pos="28.025 0 0.1" type="box" size="0.125 0.75 0.1" />
+    <geom name="stair_nosing_20cm_up_1" pos="27.8855 0 0.1825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_2" pos="28.275 0 0.2" type="box" size="0.125 0.75 0.2" />
+    <geom name="stair_nosing_20cm_up_2" pos="28.1355 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_3" pos="28.525 0 0.3" type="box" size="0.125 0.75 0.3" />
+    <geom name="stair_nosing_20cm_up_3" pos="28.3855 0 0.5825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_4" pos="28.775 0 0.4" type="box" size="0.125 0.75 0.4" />
+    <geom name="stair_nosing_20cm_up_4" pos="28.6355 0 0.7825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_5" pos="29.025 0 0.5" type="box" size="0.125 0.75 0.5" />
+    <geom name="stair_nosing_20cm_up_5" pos="28.8855 0 0.9825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_6" pos="29.275 0 0.6" type="box" size="0.125 0.75 0.6" />
+    <geom name="stair_nosing_20cm_up_6" pos="29.1355 0 1.1825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_up_7" pos="29.525 0 0.7" type="box" size="0.125 0.75 0.7" />
+    <geom name="stair_nosing_20cm_up_7" pos="29.3855 0 1.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_platform" pos="30.15 0 0.8" type="box" size="0.5 0.75 0.8" />
+    <geom name="stair_nosing_20cm_platform_up" pos="29.6355 0 1.5825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_nosing_20cm_platform_down" pos="30.6645 0 1.5825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_7" pos="30.775 0 0.7" type="box" size="0.125 0.75 0.7" />
+    <geom name="stair_nosing_20cm_down_7" pos="30.9145 0 1.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_6" pos="31.025 0 0.6" type="box" size="0.125 0.75 0.6" />
+    <geom name="stair_nosing_20cm_down_6" pos="31.1645 0 1.1825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_5" pos="31.275 0 0.5" type="box" size="0.125 0.75 0.5" />
+    <geom name="stair_nosing_20cm_down_5" pos="31.4145 0 0.9825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_4" pos="31.525 0 0.4" type="box" size="0.125 0.75 0.4" />
+    <geom name="stair_nosing_20cm_down_4" pos="31.6645 0 0.7825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_3" pos="31.775 0 0.3" type="box" size="0.125 0.75 0.3" />
+    <geom name="stair_nosing_20cm_down_3" pos="31.9145 0 0.5825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_2" pos="32.025 0 0.2" type="box" size="0.125 0.75 0.2" />
+    <geom name="stair_nosing_20cm_down_2" pos="32.1645 0 0.3825" type="box" size="0.0155 0.75 0.0175" />
+    <geom name="stair_20cm_down_1" pos="32.275 0 0.1" type="box" size="0.125 0.75 0.1" />
+    <geom name="stair_nosing_20cm_down_1" pos="32.4145 0 0.1825" type="box" size="0.0155 0.75 0.0175" />
+  </worldbody>
+</mujoco>

@@ -11,11 +11,36 @@
     <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300" />
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.0" />
+    <texture name="tex_height_5cm" type="2d" file="./imgs/height_5cm.png" />
+    <material name="mat_height_5cm" texture="tex_height_5cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_8cm" type="2d" file="./imgs/height_8cm.png" />
+    <material name="mat_height_8cm" texture="tex_height_8cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_11cm" type="2d" file="./imgs/height_11cm.png" />
+    <material name="mat_height_11cm" texture="tex_height_11cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_14cm" type="2d" file="./imgs/height_14cm.png" />
+    <material name="mat_height_14cm" texture="tex_height_14cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_17cm" type="2d" file="./imgs/height_17cm.png" />
+    <material name="mat_height_17cm" texture="tex_height_17cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_20cm" type="2d" file="./imgs/height_20cm.png" />
+    <material name="mat_height_20cm" texture="tex_height_20cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_23cm" type="2d" file="./imgs/height_23cm.png" />
+    <material name="mat_height_23cm" texture="tex_height_23cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_26cm" type="2d" file="./imgs/height_26cm.png" />
+    <material name="mat_height_26cm" texture="tex_height_26cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_29cm" type="2d" file="./imgs/height_29cm.png" />
+    <material name="mat_height_29cm" texture="tex_height_29cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_32cm" type="2d" file="./imgs/height_32cm.png" />
+    <material name="mat_height_32cm" texture="tex_height_32cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_35cm" type="2d" file="./imgs/height_35cm.png" />
+    <material name="mat_height_35cm" texture="tex_height_35cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
+    <texture name="tex_height_38cm" type="2d" file="./imgs/height_38cm.png" />
+    <material name="mat_height_38cm" texture="tex_height_38cm" specular="0" shininess="0" emission="1" texrepeat="1 1" rgba="1 1 1 1" />
   </asset>
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true" />
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane" />
     <geom pos="1.3 0.0 0.025" type="box" size="0.15 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="1.3 0.0 0.052" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_5cm" />
     <geom pos="1.6 0.0 0.07500000000000001" type="box" size="0.15 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
     <geom pos="1.9 0.0 0.125" type="box" size="0.15 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
     <geom pos="2.2 0.0 0.17500000000000002" type="box" size="0.15 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
@@ -30,6 +55,7 @@
     <geom pos="5.6 0.0 0.025000000000000022" type="box" size="0.15 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
     <geom pos="6.25 0.0 0.025" type="box" size="0.5 0.75 0.025" quat="1.0 0.0 0.0 0.0" />
     <geom pos="6.898999999999999 0.0 0.04" type="box" size="0.15 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="6.898999999999999 0.0 0.082" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_8cm" />
     <geom pos="7.198999999999999 0.0 0.12" type="box" size="0.15 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
     <geom pos="7.498999999999999 0.0 0.2" type="box" size="0.15 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
     <geom pos="7.7989999999999995 0.0 0.28" type="box" size="0.15 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
@@ -44,6 +70,7 @@
     <geom pos="11.198999999999998 0.0 0.03999999999999998" type="box" size="0.15 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
     <geom pos="11.849 0.0 0.04" type="box" size="0.5 0.75 0.04" quat="1.0 0.0 0.0 0.0" />
     <geom pos="12.498 0.0 0.055" type="box" size="0.15 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="12.498 0.0 0.112" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_11cm" />
     <geom pos="12.797999999999998 0.0 0.165" type="box" size="0.15 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
     <geom pos="13.097999999999999 0.0 0.275" type="box" size="0.15 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
     <geom pos="13.397999999999998 0.0 0.385" type="box" size="0.15 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
@@ -58,6 +85,7 @@
     <geom pos="16.798 0.0 0.05499999999999994" type="box" size="0.15 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
     <geom pos="17.448 0.0 0.055" type="box" size="0.5 0.75 0.055" quat="1.0 0.0 0.0 0.0" />
     <geom pos="18.096999999999998 0.0 0.07" type="box" size="0.15 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="18.096999999999998 0.0 0.142" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_14cm" />
     <geom pos="18.397 0.0 0.21000000000000002" type="box" size="0.15 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
     <geom pos="18.696999999999996 0.0 0.35000000000000003" type="box" size="0.15 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
     <geom pos="18.996999999999996 0.0 0.49000000000000005" type="box" size="0.15 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
@@ -72,6 +100,7 @@
     <geom pos="22.397 0.0 0.06999999999999995" type="box" size="0.15 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
     <geom pos="23.046999999999997 0.0 0.07" type="box" size="0.5 0.75 0.07" quat="1.0 0.0 0.0 0.0" />
     <geom pos="23.695999999999998 0.0 0.085" type="box" size="0.15 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="23.695999999999998 0.0 0.172" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_17cm" />
     <geom pos="23.996 0.0 0.255" type="box" size="0.15 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
     <geom pos="24.295999999999996 0.0 0.42500000000000004" type="box" size="0.15 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
     <geom pos="24.595999999999997 0.0 0.5950000000000001" type="box" size="0.15 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
@@ -86,6 +115,7 @@
     <geom pos="27.995999999999995 0.0 0.08499999999999996" type="box" size="0.15 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
     <geom pos="28.645999999999997 0.0 0.085" type="box" size="0.5 0.75 0.085" quat="1.0 0.0 0.0 0.0" />
     <geom pos="29.294999999999998 0.0 0.1" type="box" size="0.15 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="29.294999999999998 0.0 0.202" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_20cm" />
     <geom pos="29.595 0.0 0.30000000000000004" type="box" size="0.15 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
     <geom pos="29.894999999999996 0.0 0.5" type="box" size="0.15 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
     <geom pos="30.194999999999997 0.0 0.7000000000000001" type="box" size="0.15 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
@@ -100,6 +130,7 @@
     <geom pos="33.595 0.0 0.10000000000000009" type="box" size="0.15 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
     <geom pos="34.245 0.0 0.1" type="box" size="0.5 0.75 0.1" quat="1.0 0.0 0.0 0.0" />
     <geom pos="34.89399999999999 0.0 0.115" type="box" size="0.15 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="34.89399999999999 0.0 0.232" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_23cm" />
     <geom pos="35.193999999999996 0.0 0.34500000000000003" type="box" size="0.15 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
     <geom pos="35.49399999999999 0.0 0.5750000000000001" type="box" size="0.15 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
     <geom pos="35.794 0.0 0.805" type="box" size="0.15 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
@@ -114,6 +145,7 @@
     <geom pos="39.193999999999996 0.0 0.11499999999999999" type="box" size="0.15 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
     <geom pos="39.843999999999994 0.0 0.115" type="box" size="0.5 0.75 0.115" quat="1.0 0.0 0.0 0.0" />
     <geom pos="40.49299999999999 0.0 0.13" type="box" size="0.15 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="40.49299999999999 0.0 0.262" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_26cm" />
     <geom pos="40.79299999999999 0.0 0.39" type="box" size="0.15 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
     <geom pos="41.09299999999999 0.0 0.65" type="box" size="0.15 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
     <geom pos="41.392999999999994 0.0 0.91" type="box" size="0.15 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
@@ -128,6 +160,7 @@
     <geom pos="44.79299999999999 0.0 0.13000000000000012" type="box" size="0.15 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
     <geom pos="45.44299999999999 0.0 0.13" type="box" size="0.5 0.75 0.13" quat="1.0 0.0 0.0 0.0" />
     <geom pos="46.091999999999985 0.0 0.145" type="box" size="0.15 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="46.091999999999985 0.0 0.292" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_29cm" />
     <geom pos="46.39199999999999 0.0 0.43499999999999994" type="box" size="0.15 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
     <geom pos="46.691999999999986 0.0 0.725" type="box" size="0.15 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
     <geom pos="46.99199999999999 0.0 1.015" type="box" size="0.15 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
@@ -142,6 +175,7 @@
     <geom pos="50.39199999999999 0.0 0.1449999999999998" type="box" size="0.15 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
     <geom pos="51.04199999999999 0.0 0.145" type="box" size="0.5 0.75 0.145" quat="1.0 0.0 0.0 0.0" />
     <geom pos="51.69099999999998 0.0 0.16" type="box" size="0.15 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="51.69099999999998 0.0 0.322" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_32cm" />
     <geom pos="51.990999999999985 0.0 0.48" type="box" size="0.15 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
     <geom pos="52.29099999999998 0.0 0.8" type="box" size="0.15 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
     <geom pos="52.59099999999999 0.0 1.12" type="box" size="0.15 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
@@ -156,6 +190,7 @@
     <geom pos="55.990999999999985 0.0 0.15999999999999992" type="box" size="0.15 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
     <geom pos="56.640999999999984 0.0 0.16" type="box" size="0.5 0.75 0.16" quat="1.0 0.0 0.0 0.0" />
     <geom pos="57.28999999999998 0.0 0.175" type="box" size="0.15 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="57.28999999999998 0.0 0.352" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_35cm" />
     <geom pos="57.58999999999998 0.0 0.5249999999999999" type="box" size="0.15 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
     <geom pos="57.88999999999998 0.0 0.875" type="box" size="0.15 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
     <geom pos="58.18999999999998 0.0 1.2249999999999999" type="box" size="0.15 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
@@ -170,6 +205,7 @@
     <geom pos="61.58999999999998 0.0 0.1749999999999996" type="box" size="0.15 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
     <geom pos="62.23999999999998 0.0 0.175" type="box" size="0.5 0.75 0.175" quat="1.0 0.0 0.0 0.0" />
     <geom pos="62.888999999999974 0.0 0.19" type="box" size="0.15 0.75 0.19" quat="1.0 0.0 0.0 0.0" />
+    <geom pos="62.888999999999974 0.0 0.382" type="box" size="0.4 0.14 0.0001" quat="0.7071067811865476 0.0 0.0 0.7071067811865475" contype="0" conaffinity="0" group="1" material="mat_height_38cm" />
     <geom pos="63.18899999999998 0.0 0.5700000000000001" type="box" size="0.15 0.75 0.19" quat="1.0 0.0 0.0 0.0" />
     <geom pos="63.488999999999976 0.0 0.95" type="box" size="0.15 0.75 0.19" quat="1.0 0.0 0.0 0.0" />
     <geom pos="63.78899999999998 0.0 1.33" type="box" size="0.15 0.75 0.19" quat="1.0 0.0 0.0 0.0" />

@@ -80,13 +80,29 @@ def _get_pygame_joy_cmd(joystick):
     return (cmd_x, cmd_y, cmd_yaw)
 
 
+def _follow_robot_camera(env, robot_index, camera_offset):
+    if env.viewer is None:
+        return
+    robot_position = env.root_states[robot_index, :3].detach().cpu().numpy()
+    camera_target = robot_position + np.array([0., 0., 0.3])
+    env.set_camera(camera_target + camera_offset, camera_target)
+
+
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    terrain_choices = {"mixed", "flat", "stairs_up", "stairs_down",
+                       "narrow_stairs_up", "narrow_stairs_down"}
+    if args.terrain not in terrain_choices:
+        raise ValueError(f"Unknown terrain '{args.terrain}'. Choose from: {sorted(terrain_choices)}")
+    if args.stair_height_cm <= 0.:
+        raise ValueError("--stair_height_cm must be positive")
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.curriculum = False
+    env_cfg.terrain.terrain_selection = args.terrain
+    env_cfg.terrain.selected_stair_height = args.stair_height_cm / 100.
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.randomize_base_mass = False
@@ -106,9 +122,13 @@ def play(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    if args.follow_robot < -1 or args.follow_robot >= env.num_envs:
+        raise ValueError(f"--follow_robot must be -1 or between 0 and {env.num_envs-1}")
+    print(f"Play terrain: {args.terrain}, stair height: {args.stair_height_cm:g} cm")
+    print(f"Camera follow robot: {args.follow_robot}" if args.follow_robot >= 0 else "Camera: fixed")
     obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Sep14_22-48-16_/model_20000.pt"
+    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Sep15_21-14-42_/model_20000.pt"
     if not os.path.isfile(policy_path):
         raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False
@@ -133,13 +153,16 @@ def play(args):
         print('Exported policy as JIT and ONNX to: ', path)
 
     logger = Logger(env.dt)
-    robot_index = 0 # which robot is used for logging
+    robot_index = max(args.follow_robot, 0) # which robot is used for logging
     joint_index = 1 # which joint is used for logging
     stop_state_log = 100 # number of steps before plotting states
     stop_rew_log = env.max_episode_length + 1 # number of steps before print average episode rewards
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
+    camera_offset = np.array([-2.5, -3., 1.8])
+    if args.follow_robot >= 0:
+        _follow_robot_camera(env, args.follow_robot, camera_offset)
     img_idx = 0
 
     joystick = _init_pygame_joystick()
@@ -164,7 +187,9 @@ def play(args):
                     filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'frames', f"{img_idx}.png")
                     env.gym.write_viewer_image_to_file(env.viewer, filename)
                     img_idx += 1 
-            if MOVE_CAMERA:
+            if args.follow_robot >= 0:
+                _follow_robot_camera(env, args.follow_robot, camera_offset)
+            elif MOVE_CAMERA:
                 camera_position += camera_vel * env.dt
                 env.set_camera(camera_position, camera_position + camera_direction)
 
@@ -204,5 +229,12 @@ if __name__ == '__main__':
     EXPORT_POLICY = True
     RECORD_FRAMES = False
     MOVE_CAMERA = False
-    args = get_args()
+    args = get_args([
+        {"name": "--terrain", "type": str, "default": "mixed",
+         "help": "Play terrain: mixed, flat, stairs_up, stairs_down, narrow_stairs_up, or narrow_stairs_down"},
+        {"name": "--stair_height_cm", "type": float, "default": 14.,
+         "help": "Riser height in centimeters for a selected stair terrain"},
+        {"name": "--follow_robot", "type": int, "default": 0,
+         "help": "Robot index followed by the camera; use -1 for a fixed camera"},
+    ])
     play(args)

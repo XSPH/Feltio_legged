@@ -46,10 +46,10 @@ class GO2RoughCfg( LeggedRobotCfg ):
   
     class rewards( LeggedRobotCfg.rewards ):
         soft_dof_pos_limit = 0.9
-        base_height_target = 0.34
+        base_height_target = 0.32
         # 前 1500 次训练迭代将竖直速度惩罚从 -2.0 线性放松到 -0.5。
         curriculum_rewards = [
-            {"reward_name": "lin_vel_z", "start_iter": 0, "end_iter": 1500, "start_value": 1.0, "end_value": 0.25},
+            {"reward_name": "lin_vel_z", "start_iter": 0, "end_iter": 1500, "start_value": 1.0, "end_value": 0.75},
             {'reward_name': 'base_height', 'start_iter': 0, 'end_iter': 5000, 'start_value': 1.0, 'end_value': 10.0},
         ]
         # Go2 对角腿为同相足：左前-右后同步，右前-左后同步，两组交替运动。

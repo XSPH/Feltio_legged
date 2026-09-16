@@ -795,6 +795,8 @@ class LeggedRobot(BaseTask):
 
         self.gym.add_heightfield(self.sim, self.terrain.heightsamples, hf_params)
         self.height_samples = torch.tensor(self.terrain.heightsamples).view(self.terrain.tot_rows, self.terrain.tot_cols).to(self.device)
+        self.narrow_stair_mask = torch.from_numpy(self.terrain.narrow_stair_mask).to(self.device)
+        self.narrow_stair_step_heights = torch.from_numpy(self.terrain.narrow_stair_step_heights).to(self.device)
 
     def _create_trimesh(self):
         """ Adds a triangle mesh terrain to the simulation, sets parameters based on the cfg.
@@ -811,6 +813,8 @@ class LeggedRobot(BaseTask):
         tm_params.restitution = self.cfg.terrain.restitution
         self.gym.add_triangle_mesh(self.sim, self.terrain.vertices.flatten(order='C'), self.terrain.triangles.flatten(order='C'), tm_params)   
         self.height_samples = torch.tensor(self.terrain.heightsamples).view(self.terrain.tot_rows, self.terrain.tot_cols).to(self.device)
+        self.narrow_stair_mask = torch.from_numpy(self.terrain.narrow_stair_mask).to(self.device)
+        self.narrow_stair_step_heights = torch.from_numpy(self.terrain.narrow_stair_step_heights).to(self.device)
 
     def _create_envs(self):
         """ Creates environments:
@@ -973,15 +977,15 @@ class LeggedRobot(BaseTask):
         elif self.cfg.terrain.mesh_type == 'none':
             raise NameError("Can't measure height with terrain mesh type 'none'")
 
-        if env_ids:
+        if env_ids is not None:
             points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_height_points), self.height_points[env_ids]) + (self.root_states[env_ids, :3]).unsqueeze(1)
         else:
             points = quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[:, :3]).unsqueeze(1)
 
-        points += self.terrain.cfg.border_size
-        points = (points/self.terrain.cfg.horizontal_scale).long()
-        px = points[:, :, 0].view(-1)
-        py = points[:, :, 1].view(-1)
+        world_points = points[:, :, :2]
+        sample_points = ((world_points + self.terrain.cfg.border_size) / self.terrain.cfg.horizontal_scale).long()
+        px = sample_points[:, :, 0].view(-1)
+        py = sample_points[:, :, 1].view(-1)
         px = torch.clip(px, 0, self.height_samples.shape[0]-2)
         py = torch.clip(py, 0, self.height_samples.shape[1]-2)
 
@@ -991,7 +995,8 @@ class LeggedRobot(BaseTask):
         heights = torch.min(heights1, heights2)
         heights = torch.min(heights, heights3)
 
-        return heights.view(self.num_envs, -1) * self.terrain.cfg.vertical_scale
+        heights = heights.view(points.shape[0], -1) * self.terrain.cfg.vertical_scale
+        return self._apply_narrow_stair_heights(world_points, heights)
 
     def _get_foot_heights(self):
         """Sample terrain heights directly below the feet."""
@@ -1001,9 +1006,8 @@ class LeggedRobot(BaseTask):
         if self.cfg.terrain.mesh_type in ("none", None):
             raise NameError("Can't measure foot height without terrain")
 
-        points = (
-            self.foot_positions[..., :2] + self.terrain.cfg.border_size
-        ) / self.terrain.cfg.horizontal_scale
+        world_points = self.foot_positions[..., :2]
+        points = (world_points + self.terrain.cfg.border_size) / self.terrain.cfg.horizontal_scale
 
         px = points[..., 0].long().reshape(-1)
         py = points[..., 1].long().reshape(-1)
@@ -1015,10 +1019,31 @@ class LeggedRobot(BaseTask):
         h01 = self.height_samples[px, py + 1]
         heights = torch.minimum(torch.minimum(h00, h10), h01)
 
-        return (
-            heights.view(self.num_envs, len(self.feet_indices))
-            * self.terrain.cfg.vertical_scale
-        )
+        heights = heights.view(self.num_envs, len(self.feet_indices)) * self.terrain.cfg.vertical_scale
+        return self._apply_narrow_stair_heights(world_points, heights)
+
+    def _apply_narrow_stair_heights(self, points, heights):
+        """Replace coarse heightfield samples with exact narrow-stair top heights."""
+        if not self.cfg.terrain.narrow_stairs_enabled:
+            return heights
+        rows = torch.floor(points[..., 0] / self.terrain.env_length).long()
+        cols = torch.floor(points[..., 1] / self.terrain.env_width).long()
+        valid = (rows >= 0) & (rows < self.terrain.cfg.num_rows)
+        valid &= (cols >= 0) & (cols < self.terrain.cfg.num_cols)
+        safe_rows = rows.clamp(0, self.terrain.cfg.num_rows-1)
+        safe_cols = cols.clamp(0, self.terrain.cfg.num_cols-1)
+        narrow = valid & self.narrow_stair_mask[safe_rows, safe_cols]
+        step_heights = self.narrow_stair_step_heights[safe_rows, safe_cols]
+        local_x = points[..., 0] - (safe_rows.to(points.dtype) + 0.5) * self.terrain.env_length
+        local_y = points[..., 1] - (safe_cols.to(points.dtype) + 0.5) * self.terrain.env_width
+        distance = torch.maximum(torch.abs(local_x), torch.abs(local_y))
+        tread_depth = self.cfg.terrain.narrow_stair_tread_depth
+        num_steps = self.cfg.terrain.narrow_stair_steps
+        stair_outer_half = 1.5 + num_steps * tread_depth
+        adjusted_outer = stair_outer_half + torch.sign(step_heights) * self.cfg.terrain.stair_nosing_depth
+        levels = torch.ceil((adjusted_outer-distance) / tread_depth).clamp(0, num_steps)
+        narrow_heights = levels * step_heights
+        return torch.where(narrow, narrow_heights, heights)
 
     #------------ reward functions----------------
     def _reward_lin_vel_z(self):
