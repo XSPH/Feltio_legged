@@ -60,6 +60,8 @@ class GO2RoughCfg( LeggedRobotCfg ):
         gait_sigma = 0.05
         gait_max_error = 0.2
         gait_velocity_threshold = 0.5
+        # 允许正常落脚速度，仅惩罚较重触地；碰立面和勾檐使用两个互斥判据。
+        impact_speed_threshold = 1.5
         # 分别比较两组对角腿相对默认站姿的关节偏移。
         joint_mirror_joint_groups = (
             (
@@ -90,7 +92,9 @@ class GO2RoughCfg( LeggedRobotCfg ):
             # 负权重项：惩罚关节不对称、支撑脚打滑和过大的落脚速度。
             joint_mirror = -0.05
             feet_slide = -0.05
-            foot_impact_velocity = -0.0
+            foot_impact_velocity = -0.05
+            stumble = -0.1
+            feet_stumble = -0.05
             # 该项使用正权重，零指令时按落地脚数量奖励稳定站立。
             feet_contact_without_cmd = 0.05 #0.1
 

@@ -422,7 +422,7 @@ class LeggedRobot(BaseTask):
         # 接触计时与腾空计时互斥：接触时累加，离地后立即清零。
         self.feet_contact_time[:] = torch.where(filtered_contacts, self.feet_contact_time + self.dt, torch.zeros_like(self.feet_contact_time))
         self.last_contacts[:] = contacts
-    
+
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
             Default behaviour: Compute ang vel command based on target and heading, compute measured terrain heights and randomly push robots
@@ -1168,13 +1168,9 @@ class LeggedRobot(BaseTask):
         return torch.sum(feet_speed_xy * self.filtered_foot_contacts.float(), dim=1)
 
     def _reward_foot_impact_velocity(self):
-        """统计首次触地时超过阈值的向下速度，配合负权重减轻落脚冲击。"""
-        # 低于 impact_speed_threshold 的轻微向下速度不计入，超出部分使用平方惩罚。
-        downward_speed = torch.clamp(-self.foot_velocities[:, :, 2] - self.cfg.rewards.impact_speed_threshold, min=0.)
-        # debug_env = 0
-        # for name, value in zip(self.feet_names, downward_speed[debug_env]):
-        #     print(f"[env {debug_env}] {name} downward_speed={value.item():.3f}")
-        return torch.sum(self.first_foot_contacts.float() * torch.square(downward_speed), dim=1)
+        """统计控制周期首次触地时超过阈值的向下速度。"""
+        excess_speed = torch.clamp(-self.foot_velocities[:, :, 2] - self.cfg.rewards.impact_speed_threshold, min=0.)
+        return torch.sum(self.first_foot_contacts.float() * torch.square(excess_speed), dim=1)
 
     def _reward_feet_contact_without_cmd(self):
         """零运动指令时按接触脚数量给奖励，鼓励机器人安稳四脚站立。"""
@@ -1244,16 +1240,21 @@ class LeggedRobot(BaseTask):
         return reward * command_active
     
     def _reward_stumble(self):
-        # Penalize feet hitting vertical surfaces
-        return torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) >\
-             5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
+        """惩罚足端受到显著水平阻挡，排除由负竖直力识别的勾檐事件。"""
+        foot_forces = self.contact_forces[:, self.feet_indices, :]
+        horizontal_force = torch.norm(foot_forces[:, :, :2], dim=2)
+        upward_force = torch.clamp(foot_forces[:, :, 2], min=0.)
+        underside_contact = foot_forces[:, :, 2] < -self.cfg.rewards.feet_stumble_downward_force_threshold
+        blocked = (
+            (horizontal_force > self.cfg.rewards.stumble_horizontal_force_threshold)
+            & (horizontal_force > self.cfg.rewards.stumble_force_ratio * upward_force)
+        )
+        return torch.sum((blocked & ~underside_contact).float(), dim=1)
 
     def _reward_feet_stumble(self):
-        # Penalize feet hitting vertical surfaces with little vertical contact force.
-        horizontal_force = torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2)
-        vertical_force = torch.abs(self.contact_forces[:, self.feet_indices, 2])
-        stumble = (horizontal_force > 2.) & (vertical_force < 1.)
-        return torch.sum(stumble, dim=1)
+        """惩罚足端受到明显向下接触力的疑似勾檐事件。"""
+        downward_contact = self.contact_forces[:, self.feet_indices, 2] < -self.cfg.rewards.feet_stumble_downward_force_threshold
+        return torch.sum(downward_contact.float(), dim=1)
         
     def _reward_stand_still(self):
         # Penalize motion at zero commands

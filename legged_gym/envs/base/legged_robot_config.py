@@ -191,6 +191,10 @@ class LeggedRobotCfg(BaseConfig):
 
         # 首次触地时，仅惩罚超过该阈值的向下速度。
         impact_speed_threshold = 0.5
+        # 水平阻挡需同时超过绝对力阈值和向上支撑力倍率；负竖直力阈值用于识别足端勾檐。
+        stumble_horizontal_force_threshold = 10.0
+        stumble_force_ratio = 2.0
+        feet_stumble_downward_force_threshold = 10.0
 
         # 相位足端轨迹：std 控制指数奖励宽容度，cycle_time 和 stance_ratio 定义步态周期。
         phase_foot_trajectory_std = 0.12
