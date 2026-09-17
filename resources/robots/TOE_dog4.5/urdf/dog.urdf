@@ -216,9 +216,9 @@
   <link
     name="FL_calflower1">
     <collision>
-      <origin rpy="0 0 0" xyz="0 0 0" />
+      <origin rpy="0 0 0" xyz="-0.005 0 0" />
       <geometry>
-        <cylinder length="0.03" radius="0.0155" />
+        <cylinder length="0.03" radius="0.014" />
       </geometry>
     </collision>
   </link>
@@ -460,9 +460,9 @@
   <link
     name="FR_calflower1">
     <collision>
-      <origin rpy="0 0 0" xyz="0 0 0" />
+      <origin rpy="0 0 0" xyz="-0.005 0 0" />
       <geometry>
-        <cylinder length="0.03" radius="0.0155" />
+        <cylinder length="0.03" radius="0.014" />
       </geometry>
     </collision>
   </link>
@@ -704,9 +704,9 @@
   <link
     name="RL_calflower1">
     <collision>
-      <origin rpy="0 0 0" xyz="0 0 0" />
+      <origin rpy="0 0 0" xyz="-0.005 0 0" />
       <geometry>
-        <cylinder length="0.03" radius="0.0155" />
+        <cylinder length="0.03" radius="0.014" />
       </geometry>
     </collision>
   </link>
@@ -948,9 +948,9 @@
   <link
     name="RR_calflower1">
     <collision>
-      <origin rpy="0 0 0" xyz="0 0 0" />
+      <origin rpy="0 0 0" xyz="-0.005 0 0" />
       <geometry>
-        <cylinder length="0.03" radius="0.0155" />
+        <cylinder length="0.03" radius="0.014" />
       </geometry>
     </collision>
   </link>
