@@ -26,6 +26,7 @@ set(DEPLOY_SOURCES
     src/control/rl_Inference.cpp
     src/interface/IOMujoco.cpp
     src/interface/WirelessHandle.cpp
+    src/telemetry/TelemetryLogger.cpp
 )
 
 add_executable(dogsim ${DEPLOY_SOURCES})
@@ -64,6 +65,7 @@ if(BUILD_TESTING)
         src/control/rl_Inference.cpp
         src/interface/IOMujoco.cpp
         src/interface/WirelessHandle.cpp
+        src/telemetry/TelemetryLogger.cpp
     )
     target_include_directories(deploy_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"

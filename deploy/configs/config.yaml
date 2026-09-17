@@ -64,3 +64,15 @@ commands:
 
 joystick:
   device: /dev/input/js0
+
+logging:
+  enabled: true
+  output_dir: ../../logs/mujoco
+  frequency_hz: 200.0
+  contact_force_threshold_n: 1.0
+  support_force_threshold_n: 1.0
+  contact_gap_tolerance_s: 0.02
+  four_foot_stable_s: 0.10
+  stop_linear_threshold: 0.05
+  stop_angular_threshold: 0.05
+  flush_interval_s: 1.0

@@ -13,6 +13,7 @@ State_FixedStand::State_FixedStand(CtrlComponents *ctrlComp)
 void State_FixedStand::enter(){
     _percent = 0;
     const FelConfig& cfg = _config->fel;
+    _ctrlComp->clearVelocityCommands();
     for(int i = 0; i < 4; i++){
         _lowCmd->setLegGains(i, cfg.sim_stance_gain);
         _lowCmd->setZeroDq(i);
@@ -25,6 +26,7 @@ void State_FixedStand::enter(){
 }
 
 void State_FixedStand::run(){
+    _ctrlComp->clearVelocityCommands();
     float controlDt = static_cast<float>(_config->simulation_timestep
                                          * _config->simulation_decimation);
     _percent += controlDt / _config->fel.stand_duration;

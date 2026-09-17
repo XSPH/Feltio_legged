@@ -38,6 +38,19 @@ struct FelConfig {
     LegGains sim_stance_gain;
 };
 
+struct LoggingConfig {
+    bool enabled = true;
+    std::filesystem::path output_dir;
+    double frequency_hz = 200.0;
+    double contact_force_threshold_n = 1.0;
+    double support_force_threshold_n = 1.0;
+    double contact_gap_tolerance_s = 0.02;
+    double four_foot_stable_s = 0.1;
+    double stop_linear_threshold = 0.05;
+    double stop_angular_threshold = 0.05;
+    double flush_interval_s = 1.0;
+};
+
 struct DeployConfig {
     std::filesystem::path config_path;
     std::filesystem::path scene_path;
@@ -53,6 +66,7 @@ struct DeployConfig {
     float max_angular_z = 1.0F;
     float joystick_deadzone = 0.08F;
     std::string joystick_device = "/dev/input/js0";
+    LoggingConfig logging;
 
     static DeployConfig loadDefault();
     static DeployConfig load(const std::filesystem::path& path);

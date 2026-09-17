@@ -2,6 +2,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cmath>
 #include <cstdlib>
 #include <exception>
@@ -20,6 +21,7 @@
 #include "control/ControlFrame.h"
 #include "control/CtrlComponents.h"
 #include "interface/IOMujoco.h"
+#include "telemetry/TelemetryLogger.h"
 
 namespace {
 
@@ -38,6 +40,7 @@ double g_last_x = 0.0;
 double g_last_y = 0.0;
 double g_next_telemetry_print_time = 0.0;
 std::atomic<bool> g_reset_requested{false};
+std::atomic<bool> g_stop_requested{false};
 std::atomic<UserCommand> g_keyboard_command{UserCommand::NONE};
 
 constexpr std::array<const char*, 4> kFootGeomNames = {
@@ -62,6 +65,10 @@ struct KeyboardMovement {
 };
 
 KeyboardMovement g_keyboard_movement;
+
+void requestStop(int) {
+    g_stop_requested.store(true);
+}
 
 UserValue getKeyboardValue() {
     UserValue value;
@@ -434,6 +441,8 @@ int main() {
         IOMujoco *ioInter = new IOMujoco(g_data, g_model, &config);
         CtrlComponents ctrlComp(ioInter, &config);
         ControlFrame ctrlFrame(&ctrlComp);
+        TelemetryLogger telemetryLogger(g_model, g_data, config);
+        std::signal(SIGINT, requestStop);
 
         std::cout << "Controls: B/F=fixed stand, A/R=RL, Y/P=passive, "
                      "W/S=forward/backward, A/D=left/right, "
@@ -445,10 +454,11 @@ int main() {
         double next_render_time = g_data->time;
         auto wall_deadline = std::chrono::steady_clock::now();
 
-        while (!glfwWindowShouldClose(window)) {
+        while (!glfwWindowShouldClose(window) && !g_stop_requested.load()) {
             if (g_reset_requested.exchange(false)) {
                 clearPerturbation();
                 g_keyboard_movement = KeyboardMovement{};
+                telemetryLogger.resetEpisode();
                 initializePose(g_model, g_data, config);
                 ctrlFrame.reset();
                 next_render_time = g_data->time;
@@ -475,6 +485,8 @@ int main() {
                     ctrlComp.send();
                 }
                 mj_step(g_model, g_data);
+                telemetryLogger.sample(
+                    ctrlComp, ctrlFrame._FSMController->_currentState->_stateName);
             }
 
             if (g_data->time + 1.0e-9 >= next_render_time) {
@@ -487,6 +499,8 @@ int main() {
                 std::chrono::duration<double>(policy_dt));
             std::this_thread::sleep_until(wall_deadline);
         }
+
+        telemetryLogger.finalize();
 
         mjv_freeScene(&g_scene);
         mjr_freeContext(&g_context);

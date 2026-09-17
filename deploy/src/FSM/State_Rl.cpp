@@ -24,6 +24,7 @@ void State_Rl::enter(){
     std::memset(proj_gravity, 0, sizeof(proj_gravity));
     _userValue.setZero();
     current_legged_model_path.clear();
+    _ctrlComp->clearVelocityCommands();
 }
 
 void State_Rl::run(){
@@ -35,6 +36,7 @@ void State_Rl::run(){
 void State_Rl::exit(){
     _userValue.setZero();
     _ctrlComp->zeroCmdPanel();
+    _ctrlComp->clearVelocityCommands();
 }
 
 FSMStateName State_Rl::checkChange(){
@@ -65,6 +67,11 @@ void State_Rl::speed_limit(){
     target.ly = applyDeadzone(_lowState->userValue.ly);
     target.rx = applyDeadzone(_lowState->userValue.rx);
     target.ry = applyDeadzone(_lowState->userValue.ry);
+    _ctrlComp->targetVelocityCommand = {
+        -target.ly * _config->max_linear_x,
+        -target.lx * _config->max_linear_y,
+        -target.rx * _config->max_angular_z,
+    };
     const auto ramp = [&cfg](float& current, float requested){
         if(std::abs(requested - current) > cfg.speed_ramp_step){
             current += requested > current ? cfg.speed_ramp_step
@@ -78,6 +85,11 @@ void State_Rl::speed_limit(){
     ramp(_userValue.ly, target.ly);
     ramp(_userValue.rx, target.rx);
     ramp(_userValue.ry, target.ry);
+    _ctrlComp->appliedVelocityCommand = {
+        -_userValue.ly * _config->max_linear_x,
+        -_userValue.lx * _config->max_linear_y,
+        -_userValue.rx * _config->max_angular_z,
+    };
 }
 
 void State_Rl::mnnInference_fel(){

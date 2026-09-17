@@ -77,3 +77,26 @@ The physics step is 0.005 s and the actor runs every four physics steps (50 Hz),
 as configured in `configs/config.yaml`. Joint state and PD torque are refreshed
 at every 200 Hz physics substep while the policy target is held for the full
 policy period.
+
+## Telemetry logs
+
+The `logging` section in `configs/config.yaml` enables 200 Hz CSV telemetry by
+default. Each run creates a timestamped directory under `logs/mujoco/` with:
+
+- `frames.csv`: base pose and velocity, target and ramped velocity commands,
+  FSM state, and per-foot position, velocity, contact force, support state,
+  pre-contact velocity, and contacted geom names.
+- `events.csv`: touchdown, stair-nosing contact, no-support interval, and stop
+  recovery events. Nosing events include contacts made by any robot collision
+  geom, so calf and thigh strikes are retained as well as foot strikes.
+- `summary.csv`: per-episode and global RL-state statistics split into `up`,
+  `down`, `unknown`, and `all` rows. It contains nosing counts, landing-speed
+  percentiles, no-support durations, and four-foot stop-recovery times.
+
+Backspace starts a new `episode_id` in the same files. A stop-recovery event
+starts when the requested planar/yaw command changes from moving to zero and
+ends once all four feet have carried the configured support force continuously
+for `four_foot_stable_s`. Contacts separated by at most
+`contact_gap_tolerance_s` are merged to prevent solver jitter from inflating
+event counts. Ctrl+C is handled as a graceful shutdown so buffered samples are
+flushed and `summary.csv` is generated.

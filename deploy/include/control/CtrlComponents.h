@@ -1,6 +1,7 @@
 #ifndef CTRLCOMPONENTS_H
 #define CTRLCOMPONENTS_H
 
+#include <array>
 #include <memory>
 
 #include "config/DeployConfig.h"
@@ -45,6 +46,13 @@ public:
     LowlevelState *lowState;
     IOInterface *ioInter;
     const DeployConfig *config;
+    std::array<float, 3> targetVelocityCommand{};
+    std::array<float, 3> appliedVelocityCommand{};
+
+    void clearVelocityCommands(){
+        targetVelocityCommand.fill(0.0F);
+        appliedVelocityCommand.fill(0.0F);
+    }
 
 private:
     std::unique_ptr<LowlevelCmd> lowCmdOwner;

@@ -120,6 +120,18 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
     cfg.joystick_device = required<std::string>(
         required<YAML::Node>(root, "joystick"), "device");
 
+    const auto logging = required<YAML::Node>(root, "logging");
+    cfg.logging.enabled = required<bool>(logging, "enabled");
+    cfg.logging.output_dir = resolvePath(base, required<std::string>(logging, "output_dir"));
+    cfg.logging.frequency_hz = required<double>(logging, "frequency_hz");
+    cfg.logging.contact_force_threshold_n = required<double>(logging, "contact_force_threshold_n");
+    cfg.logging.support_force_threshold_n = required<double>(logging, "support_force_threshold_n");
+    cfg.logging.contact_gap_tolerance_s = required<double>(logging, "contact_gap_tolerance_s");
+    cfg.logging.four_foot_stable_s = required<double>(logging, "four_foot_stable_s");
+    cfg.logging.stop_linear_threshold = required<double>(logging, "stop_linear_threshold");
+    cfg.logging.stop_angular_threshold = required<double>(logging, "stop_angular_threshold");
+    cfg.logging.flush_interval_s = required<double>(logging, "flush_interval_s");
+
     if (cfg.fel.num_proprio != 45 || cfg.fel.history_len != 5 ||
         cfg.fel.num_actions != 12) {
         throw std::runtime_error(
@@ -139,6 +151,19 @@ DeployConfig DeployConfig::load(const std::filesystem::path& path) {
     requirePositive(cfg.fel.observation_clamp, "fel.observation_clamp");
     requirePositive(cfg.fel.action_clamp, "fel.action_clamp");
     requirePositive(cfg.fel.speed_ramp_step, "fel.speed_ramp_step");
+    requirePositive(cfg.logging.frequency_hz, "logging.frequency_hz");
+    requirePositive(cfg.logging.contact_force_threshold_n, "logging.contact_force_threshold_n");
+    requirePositive(cfg.logging.support_force_threshold_n, "logging.support_force_threshold_n");
+    requirePositive(cfg.logging.four_foot_stable_s, "logging.four_foot_stable_s");
+    requirePositive(cfg.logging.flush_interval_s, "logging.flush_interval_s");
+    if (cfg.logging.frequency_hz > 1.0 / cfg.simulation_timestep + 1.0e-9) {
+        throw std::runtime_error("logging.frequency_hz cannot exceed the physics frequency");
+    }
+    if (cfg.logging.contact_gap_tolerance_s < 0.0 ||
+        cfg.logging.stop_linear_threshold < 0.0 ||
+        cfg.logging.stop_angular_threshold < 0.0) {
+        throw std::runtime_error("logging tolerances and stop thresholds must be non-negative");
+    }
     if (cfg.joystick_deadzone < 0.0F || cfg.joystick_deadzone >= 1.0F) {
         throw std::runtime_error("commands.deadzone must be in [0, 1)");
     }

@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <mujoco/mujoco.h>
 
@@ -15,6 +17,7 @@
 #include "control/CtrlComponents.h"
 #include "control/rl_Inference.h"
 #include "interface/IOMujoco.h"
+#include "telemetry/TelemetryLogger.h"
 
 namespace{
 
@@ -232,6 +235,71 @@ void testMujocoCommandFlow(const DeployConfig& config){
                 "send did not reject a non-finite torque");
 }
 
+void testTelemetryLogging(const DeployConfig& sourceConfig){
+    DeployConfig config = sourceConfig;
+    const std::filesystem::path outputBase =
+        std::filesystem::temp_directory_path() / "feltio_telemetry_test";
+    std::filesystem::remove_all(outputBase);
+    config.logging.enabled = true;
+    config.logging.output_dir = outputBase;
+    config.logging.frequency_hz = 200.0;
+
+    char error[1024]{};
+    std::unique_ptr<mjModel, decltype(&mj_deleteModel)> model(
+        mj_loadXML(config.scene_path.c_str(), nullptr, error, sizeof(error)),
+        &mj_deleteModel);
+    require(model != nullptr, std::string("Failed to load telemetry scene: ") + error);
+    model->opt.timestep = config.simulation_timestep;
+    std::unique_ptr<mjData, decltype(&mj_deleteData)> data(mj_makeData(model.get()),
+                                                          &mj_deleteData);
+    require(data != nullptr, "Failed to allocate telemetry data");
+    mj_forward(model.get(), data.get());
+
+    auto *fake = new FakeIO();
+    CtrlComponents ctrlComp(fake, &config);
+    ctrlComp.targetVelocityCommand = {0.4F, 0.0F, 0.0F};
+    ctrlComp.appliedVelocityCommand = {0.2F, 0.0F, 0.0F};
+    {
+        TelemetryLogger logger(model.get(), data.get(), config);
+        for(int step = 0; step < 3; ++step){
+            mj_step(model.get(), data.get());
+            logger.sample(ctrlComp, FSMStateName::Rl);
+        }
+        logger.resetEpisode();
+        mj_resetData(model.get(), data.get());
+        mj_forward(model.get(), data.get());
+        mj_step(model.get(), data.get());
+        logger.sample(ctrlComp, FSMStateName::Rl);
+        logger.finalize();
+    }
+
+    std::vector<std::filesystem::path> sessions;
+    for(const auto& entry : std::filesystem::directory_iterator(outputBase)){
+        if(entry.is_directory()){
+            sessions.push_back(entry.path());
+        }
+    }
+    require(sessions.size() == 1, "Telemetry logger did not create one session");
+    const auto framesPath = sessions[0] / "frames.csv";
+    const auto eventsPath = sessions[0] / "events.csv";
+    const auto summaryPath = sessions[0] / "summary.csv";
+    require(std::filesystem::is_regular_file(framesPath), "frames.csv is missing");
+    require(std::filesystem::is_regular_file(eventsPath), "events.csv is missing");
+    require(std::filesystem::is_regular_file(summaryPath), "summary.csv is missing");
+
+    std::ifstream frames(framesPath);
+    std::string line;
+    int lineCount = 0;
+    bool sawEpisodeOne = false;
+    while(std::getline(frames, line)){
+        ++lineCount;
+        sawEpisodeOne |= line.rfind("0.020000,1,", 0) == 0;
+    }
+    require(lineCount == 5, "200 Hz telemetry did not write one row per physics step");
+    require(sawEpisodeOne, "Telemetry reset did not increment episode_id");
+    std::filesystem::remove_all(outputBase);
+}
+
 }
 
 int main(){
@@ -242,12 +310,15 @@ int main(){
                 "Configured model input does not match deployment history");
         require(config.fel.model_output_size == NUM_ACTIONS,
                 "Configured model output does not match deployment actions");
+        requireNear(static_cast<float>(config.logging.frequency_hz), 200.0F,
+                    "Telemetry frequency mismatch");
         requireNear(applyDeadzone(0.5F, config.joystick_deadzone),
                     (0.5F - config.joystick_deadzone) / (1 - config.joystick_deadzone),
                     "Deadzone reference calculation failed");
         testStateRlInterface(config);
         testFsmTransitionTiming(config);
         testMujocoCommandFlow(config);
+        testTelemetryLogging(config);
         std::cout << "deploy interface tests passed" << std::endl;
         return 0;
     }
