@@ -59,6 +59,8 @@ class LeggedRobot(BaseTask):
         """
         clip_actions = self.cfg.normalization.clip_actions
         self.actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
+        self.foot_impact_velocity_cost.zero_()
+        self.foot_impact_force_cost.zero_()
         # step physics and render each frame
         self.render()
         if self.cfg.domain_rand.randomize_action_delay:
@@ -79,6 +81,10 @@ class LeggedRobot(BaseTask):
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
+            if self.track_foot_impacts:
+                self.gym.refresh_net_contact_force_tensor(self.sim)
+                self.gym.refresh_rigid_body_state_tensor(self.sim)
+                self._update_foot_impact_state()
         self.post_physics_step()
 
         # return clipped obs, clipped states (None), rewards, dones and infos
@@ -193,6 +199,11 @@ class LeggedRobot(BaseTask):
         self.last_contacts[env_ids] = False
         self.filtered_foot_contacts[env_ids] = False
         self.first_foot_contacts[env_ids] = False
+        self.impact_air_steps[env_ids] = 0
+        self.impact_window_steps[env_ids] = 0
+        self.impact_last_air_velocity[env_ids] = 0.
+        self.foot_impact_velocity_cost[env_ids] = 0.
+        self.foot_impact_force_cost[env_ids] = 0.
         self.phase_foot_reference[env_ids] = 0.
         self.phase_foot_reference_initialized[env_ids] = False
         self.episode_length_buf[env_ids] = 0
@@ -405,6 +416,24 @@ class LeggedRobot(BaseTask):
             com_offset = np.random.uniform(rng[0], rng[1], 3)
             props[0].com += gymapi.Vec3(*(float(value) for value in com_offset))
         return props
+
+    def _update_foot_impact_state(self):
+        """按物理步记录落脚前速度及触地后短窗口内的过大竖直力。"""
+        forces_z = self.contact_forces[:, self.feet_indices, 2]
+        velocities_z = self.rigid_body_states[:, self.feet_indices, 9]
+        contacts = forces_z > self.cfg.rewards.foot_contact_force_threshold
+        touchdown = contacts & (self.impact_air_steps >= self.impact_contact_gap_steps)
+        excess_speed = (-self.impact_last_air_velocity - self.cfg.rewards.impact_speed_threshold).clamp_min(0.)
+        self.foot_impact_velocity_cost += torch.sum(touchdown * excess_speed.square(), dim=1)
+        self.impact_window_steps[touchdown] = self.impact_window_length_steps
+        excess_force = (forces_z / self.cfg.rewards.impact_force_threshold - 1.).clamp_min(0.)
+        # 先取子步平均，奖励框架随后统一乘 self.dt，得到一次时间积分。
+        self.foot_impact_force_cost += torch.sum(
+            (self.impact_window_steps > 0) * excess_force.square(), dim=1) / self.cfg.control.decimation
+        self.impact_window_steps.sub_(1).clamp_min_(0)
+        self.impact_air_steps[:] = torch.where(contacts, 0, self.impact_air_steps + 1)
+        # 只在无支撑时更新，触地后的减速不会覆盖最后一个腾空步的速度。
+        self.impact_last_air_velocity[:] = torch.where(contacts, self.impact_last_air_velocity, velocities_z)
 
     def _update_foot_contact_state(self):
         """统一更新奖励函数使用的足端接触状态和连续计时。"""
@@ -675,6 +704,15 @@ class LeggedRobot(BaseTask):
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
         self.filtered_foot_contacts = torch.zeros_like(self.last_contacts)
         self.first_foot_contacts = torch.zeros_like(self.last_contacts)
+        self.track_foot_impacts = (self.cfg.rewards.scales.foot_impact_velocity != 0.
+                                  or self.cfg.rewards.scales.foot_impact_force != 0.)
+        self.impact_contact_gap_steps = max(1, math.ceil(self.cfg.rewards.impact_contact_gap_s / self.sim_params.dt))
+        self.impact_window_length_steps = max(1, math.ceil(self.cfg.rewards.impact_window_s / self.sim_params.dt))
+        self.impact_air_steps = torch.zeros_like(self.last_contacts, dtype=torch.long)
+        self.impact_window_steps = torch.zeros_like(self.impact_air_steps)
+        self.impact_last_air_velocity = torch.zeros_like(self.feet_air_time)
+        self.foot_impact_velocity_cost = torch.zeros(self.num_envs, device=self.device)
+        self.foot_impact_force_cost = torch.zeros_like(self.foot_impact_velocity_cost)
         self.phase_foot_reference = torch.zeros(self.num_envs, len(self.feet_indices), 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.phase_foot_reference_initialized = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device, requires_grad=False)
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
@@ -1168,9 +1206,12 @@ class LeggedRobot(BaseTask):
         return torch.sum(feet_speed_xy * self.filtered_foot_contacts.float(), dim=1)
 
     def _reward_foot_impact_velocity(self):
-        """统计控制周期首次触地时超过阈值的向下速度。"""
-        excess_speed = torch.clamp(-self.foot_velocities[:, :, 2] - self.cfg.rewards.impact_speed_threshold, min=0.)
-        return torch.sum(self.first_foot_contacts.float() * torch.square(excess_speed), dim=1)
+        """结算本控制周期内触地前向下速度的超阈值代价。"""
+        return self.foot_impact_velocity_cost
+
+    def _reward_foot_impact_force(self):
+        """结算触地后短窗口内过大竖直力的子步平均代价。"""
+        return self.foot_impact_force_cost
 
     def _reward_feet_contact_without_cmd(self):
         """零运动指令时按接触脚数量给奖励，鼓励机器人安稳四脚站立。"""

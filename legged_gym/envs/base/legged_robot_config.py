@@ -154,6 +154,7 @@ class LeggedRobotCfg(BaseConfig):
             joint_mirror = 0.
             feet_slide = 0.
             foot_impact_velocity = 0.
+            foot_impact_force = 0.
             feet_contact_without_cmd = 0.
             collision = -1.
             stumble = -0.1
@@ -189,8 +190,11 @@ class LeggedRobotCfg(BaseConfig):
         joint_mirror_joint_groups = ()
         joint_mirror_signs = ()
 
-        # 首次触地时，仅惩罚超过该阈值的向下速度。
+        # 在物理子步记录首次触地前的向下速度；短暂无支撑不重复触发落脚奖励。
         impact_speed_threshold = 0.5
+        impact_force_threshold = 250.0 # [N] 触地后竖直力的软惩罚阈值
+        impact_window_s = 0.08
+        impact_contact_gap_s = 0.02
         # 水平阻挡需同时超过绝对力阈值和向上支撑力倍率；负竖直力阈值用于识别足端勾檐。
         stumble_horizontal_force_threshold = 10.0
         stumble_force_ratio = 2.0
