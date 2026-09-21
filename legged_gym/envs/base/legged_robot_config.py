@@ -147,7 +147,7 @@ class LeggedRobotCfg(BaseConfig):
             dof_acc = -2.5e-7
             dof_power = -2e-5
             base_height = -1.
-            feet_air_time = 1.
+            feet_air_time = 0.
             # 新增奖励项的默认权重均为 0，由具体机器人配置按需开启。
             feet_gait = 0.
             phase_foot_trajectory_exp = 0.
@@ -163,7 +163,7 @@ class LeggedRobotCfg(BaseConfig):
             action_smoothness = -0.01
             stand_still = -0.
             feet_regulation = -0.05
-            hip_default = -0.4
+            hip_default = -0.25
 
 
         only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
