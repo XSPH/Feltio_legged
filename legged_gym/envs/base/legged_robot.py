@@ -276,14 +276,14 @@ class LeggedRobot(BaseTask):
         heights = torch.clip(self.root_states[:, 2].unsqueeze(1) - 0.5 - self.measured_heights,-1.,1.) * self.obs_scales.height_measurements
         self.foot_contact_forces = self._get_normalized_foot_contact_forces()
 
-        self.privileged_obs_buf = torch.cat((
-                                    self.obs_buf,
-                                    self.base_lin_vel * self.obs_scales.lin_vel,
-                                    self.foot_contact_forces,
-                                    self.torques / self.torque_limits,  # motor torques (12,)
-                                    (self.last_dof_vel - self.dof_vel) / self.dt * 1e-4,  # motor accelerations (12,)
-                                    heights
-                                    ), dim=-1)
+        privileged_obs = (self.obs_buf, self.base_lin_vel * self.obs_scales.lin_vel, self.foot_contact_forces)
+        legacy_obs_dim = sum(obs.shape[1] for obs in privileged_obs) + heights.shape[1]
+        # Older policies omit joint torques and accelerations; keep their saved observation ordering.
+        if self.num_privileged_obs == legacy_obs_dim + 2 * self.num_actions:
+            privileged_obs += (self.torques / self.torque_limits, (self.last_dof_vel - self.dof_vel) / self.dt * 1e-4)
+        elif self.num_privileged_obs != legacy_obs_dim:
+            raise ValueError(f"Unsupported privileged observation dimension: {self.num_privileged_obs}; expected {legacy_obs_dim} or {legacy_obs_dim + 2 * self.num_actions}")
+        self.privileged_obs_buf = torch.cat(privileged_obs + (heights,), dim=-1)
         # add noise if needed
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec

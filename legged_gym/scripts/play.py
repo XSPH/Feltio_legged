@@ -37,6 +37,7 @@ from legged_gym.utils import export_policy_as_jit, export_policy_as_onnx, get_ar
 
 import numpy as np
 import torch
+import yaml
 
 try:
     import pygame
@@ -88,8 +89,35 @@ def _follow_robot_camera(env, robot_index, camera_offset):
     env.set_camera(camera_target + camera_offset, camera_target)
 
 
+def _restore_policy_config(policy_path, env_cfg, train_cfg):
+    """Restore the observation and network interface saved with the policy."""
+    config_path = os.path.join(os.path.dirname(policy_path), "config.yaml")
+    with open(config_path, encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file)
+    saved_env = config["env_cfg"]
+    for name in ("num_observations", "num_privileged_obs", "num_actions"):
+        setattr(env_cfg.env, name, saved_env["env"][name])
+    for name, value in saved_env["normalization"].items():
+        if name == "obs_scales":
+            for scale_name, scale in value.items():
+                setattr(env_cfg.normalization.obs_scales, scale_name, scale)
+        else:
+            setattr(env_cfg.normalization, name, value)
+    for name in ("measured_points_x", "measured_points_y"):
+        setattr(env_cfg.terrain, name, saved_env["terrain"][name])
+    train_cfg.history_length = config["train_cfg"]["history_length"]
+    for name, value in config["train_cfg"]["policy"].items():
+        setattr(train_cfg.policy, name, value)
+    print(f"Restored policy interface from: {config_path}")
+    print(f"Observations: actor={env_cfg.env.num_observations}, critic={env_cfg.env.num_privileged_obs}, history={train_cfg.history_length}")
+
+
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    policy_path = args.policy_path
+    if not os.path.isfile(policy_path):
+        raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
+    _restore_policy_config(policy_path, env_cfg, train_cfg)
     terrain_choices = {"mixed", "flat", "stairs_up", "stairs_down",
                        "narrow_stairs_up", "narrow_stairs_down"}
     if args.terrain not in terrain_choices:
@@ -126,16 +154,12 @@ def play(args):
         raise ValueError(f"--follow_robot must be -1 or between 0 and {env.num_envs-1}")
     print(f"Play terrain: {args.terrain}, stair height: {args.stair_height_cm:g} cm")
     print(f"Camera follow robot: {args.follow_robot}" if args.follow_robot >= 0 else "Camera: fixed")
-    obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Sep21_20-39-10_/model_20000.pt"
-    if not os.path.isfile(policy_path):
-        raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False
     args.resume = False
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     print(f"Loading policy from: {policy_path}")
-    ppo_runner.load(policy_path)
+    ppo_runner.load(policy_path, load_optimizer=False)
     policy = ppo_runner.get_inference_policy(device=env.device)
     obs = env.get_observations()
     history = torch.zeros(
@@ -230,6 +254,9 @@ if __name__ == '__main__':
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     args = get_args([
+        {"name": "--policy_path", "type": str,
+         "default": os.path.join(LEGGED_GYM_ROOT_DIR, "logs/dog4.5_cts/Aug27_20-42-00_/model_20000.pt"),
+         "help": "Policy checkpoint; restore its observation interface from the adjacent config.yaml"},
         {"name": "--terrain", "type": str, "default": "mixed",
          "help": "Play terrain: mixed, flat, stairs_up, stairs_down, narrow_stairs_up, or narrow_stairs_down"},
         {"name": "--stair_height_cm", "type": float, "default": 14.,
