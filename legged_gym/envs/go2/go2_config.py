@@ -49,7 +49,7 @@ class GO2RoughCfg( LeggedRobotCfg ):
         base_height_target = 0.34
         # 前 1500 次训练迭代将竖直速度惩罚从 -2.0 线性放松到 -0.5。
         curriculum_rewards = [
-            {"reward_name": "lin_vel_z", "start_iter": 0, "end_iter": 1500, "start_value": 1.0, "end_value": 0.8},
+            # {"reward_name": "lin_vel_z", "start_iter": 0, "end_iter": 1500, "start_value": 1.0, "end_value": 0.8},
             {'reward_name': 'base_height', 'start_iter': 0, 'end_iter': 5000, 'start_value': 1.0, 'end_value': 10.0},
         ]
         # Go2 对角腿为同相足：左前-右后同步，右前-左后同步，两组交替运动。
@@ -86,6 +86,7 @@ class GO2RoughCfg( LeggedRobotCfg ):
         phase_foot_trajectory_horizontal_span = 0.15
         phase_foot_trajectory_swing_height = 0.08
         class scales( LeggedRobotCfg.rewards.scales ):
+            dont_wait = -0.5
             torques = -1e-4
             dof_pos_limits = -5.
             dof_vel_limits = -10.
@@ -96,7 +97,7 @@ class GO2RoughCfg( LeggedRobotCfg ):
             joint_mirror = 0.0
             feet_slide = -0.05
             foot_impact_velocity = -0.05
-            foot_impact_force = -0.2
+            foot_impact_force = 0.
             stumble = -0.1
             feet_stumble = -0.05
             # 该项使用正权重，零指令时按落地脚数量奖励稳定站立。

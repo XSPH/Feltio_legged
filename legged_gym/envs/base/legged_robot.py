@@ -1156,6 +1156,17 @@ class LeggedRobot(BaseTask):
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-ang_vel_error/self.cfg.rewards.tracking_sigma)
 
+    def _reward_dont_wait(self):
+        # 沿指令方向的平移和转向速度分别计分，混合指令取较大的惩罚。
+        lin_cmd = self.commands[:, :2]
+        lin_cmd_norm = torch.norm(lin_cmd, dim=1)
+        lin_vel = torch.sum(self.base_lin_vel[:, :2] * lin_cmd, dim=1) / lin_cmd_norm.clamp(min=1e-6)
+        ang_cmd = self.commands[:, 2]
+        ang_vel = self.base_ang_vel[:, 2] * torch.sign(ang_cmd)
+        lin_cost = (lin_cmd_norm > 0.3) * ((lin_vel < 0.15).float() + (lin_vel < 0.).float() + (lin_vel < -0.15).float())
+        ang_cost = (torch.abs(ang_cmd) > 0.3) * ((ang_vel < 0.15).float() + (ang_vel < 0.).float() + (ang_vel < -0.15).float())
+        return torch.maximum(lin_cost, ang_cost)
+
     def _reward_feet_air_time(self):
         """在有平移指令时，根据落地前腾空时间奖励较长的步幅。"""
         # 仅在首次触地帧结算；腾空 0.5 s 为零点，更长为正奖励，更短为负奖励。
