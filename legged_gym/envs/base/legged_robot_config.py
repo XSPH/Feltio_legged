@@ -155,6 +155,7 @@ class LeggedRobotCfg(BaseConfig):
             feet_slide = 0.
             foot_impact_velocity = 0.
             foot_impact_force = 0.
+            soft_landing = 0.
             feet_contact_without_cmd = 0.
             collision = -1.
             stumble = -0.1

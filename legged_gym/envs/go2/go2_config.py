@@ -98,6 +98,7 @@ class GO2RoughCfg( LeggedRobotCfg ):
             feet_slide = -0.05
             foot_impact_velocity = -0.05
             foot_impact_force = 0.
+            soft_landing = -0.001
             stumble = -0.1
             feet_stumble = -0.05
             # 该项使用正权重，零指令时按落地脚数量奖励稳定站立。

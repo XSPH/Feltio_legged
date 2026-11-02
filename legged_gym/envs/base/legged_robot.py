@@ -1224,6 +1224,12 @@ class LeggedRobot(BaseTask):
         """结算触地后短窗口内过大竖直力的子步平均代价。"""
         return self.foot_impact_force_cost
 
+    def _reward_soft_landing(self):
+        """惩罚运动指令下首次落脚时的接触力。"""
+        forces = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
+        command_speed = torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
+        return torch.sum(forces * self.first_foot_contacts, dim=1) * (command_speed > 0.1)
+
     def _reward_feet_contact_without_cmd(self):
         """零运动指令时按接触脚数量给奖励，鼓励机器人安稳四脚站立。"""
         command_is_zero = torch.norm(self.commands[:, :3], dim=1) < self.cfg.rewards.command_threshold
