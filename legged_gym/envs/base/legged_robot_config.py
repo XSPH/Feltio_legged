@@ -167,10 +167,10 @@ class LeggedRobotCfg(BaseConfig):
             hip_default = -0.25
 
 
-        only_positive_rewards = False # if true negative total rewards are clipped at zero (avoids early termination problems)
+        only_positive_rewards = True # if true negative total rewards are clipped at zero (avoids early termination problems)
         tracking_sigma = 0.25 # tracking reward = exp(-error^2/sigma)
-        soft_dof_pos_limit = 0.8 # percentage of urdf limits, values above this limit are penalized
-        soft_dof_vel_limit = 0.8
+        soft_dof_pos_limit = 0.9 # percentage of urdf limits, values above this limit are penalized
+        soft_dof_vel_limit = 0.9
         soft_torque_limit = 0.9
         base_height_target = 1.
         max_contact_force = 100. # forces above this value are penalized

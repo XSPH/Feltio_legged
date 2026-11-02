@@ -86,10 +86,10 @@ class GO2RoughCfg( LeggedRobotCfg ):
         phase_foot_trajectory_horizontal_span = 0.15
         phase_foot_trajectory_swing_height = 0.08
         class scales( LeggedRobotCfg.rewards.scales ):
-            dont_wait = -0.5
+            dont_wait = -0.25
             torques = -1e-4
-            dof_pos_limits = -5.
-            dof_vel_limits = -10.
+            dof_pos_limits = -2.
+            dof_vel_limits = -2.
             # 正权重项：鼓励对角步态和相位轨迹跟踪。
             feet_gait =  0 # 0.1
             phase_foot_trajectory_exp = 0 # 0.2
