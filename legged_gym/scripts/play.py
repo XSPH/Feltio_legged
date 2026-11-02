@@ -128,7 +128,7 @@ def play(args):
     print(f"Camera follow robot: {args.follow_robot}" if args.follow_robot >= 0 else "Camera: fixed")
     obs = env.get_observations()
     # load policy
-    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Oct31_22-06-06_/model_20000.pt"
+    policy_path = "/home/asuka/Legged/Feltio_legged/logs/dog4.5_cts/Nov01_11-29-30_/model_20000.pt"
     if not os.path.isfile(policy_path):
         raise FileNotFoundError(f"Policy checkpoint not found: {policy_path}")
     train_cfg.runner.resume = False
